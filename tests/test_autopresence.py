@@ -15,7 +15,7 @@ import tempfile
 import time
 import sys
 
-def test_game(appid, expected_title, extra_env=None, expected_state=None):
+def test_game(appid, expected_title, extra_env=None, expected_state=None, expected_art_substr="library_600x900.jpg"):
     with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
         sock_path = os.path.join(tmpdir, "discord-ipc-0")
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -69,6 +69,8 @@ def test_game(appid, expected_title, extra_env=None, expected_state=None):
             check_id = appid or (extra_env.get("NOTPROTON_DISCORD_APPID") if extra_env else None)
             if check_id:
                 assert check_id in activity["assets"]["large_image"], f"Expected AppID in image URL, got {activity['assets']['large_image']}"
+            if expected_art_substr:
+                assert expected_art_substr in activity["assets"]["large_image"], f"Expected '{expected_art_substr}' in {activity['assets']['large_image']}"
             print(f"  ok    Auto-Presence verified for {expected_title}")
 
         finally:
@@ -123,6 +125,10 @@ def main():
     test_game("205100", "Dishonored (Custom Mod)", extra_env={"NOTPROTON_DISCORD_TITLE": "Dishonored (Custom Mod)", "NOTPROTON_DISCORD_FORCE_AUTO": "1"})
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_STATE": "Stealth Run", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_state="Stealth Run")
     test_game(None, "Dishonored", extra_env={"NOTPROTON_DISCORD_APPID": "205100", "NOTPROTON_DISCORD_FORCE_AUTO": "1"})
+    # Test art options
+    test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "header", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="header.jpg")
+    test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "logo", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="logo.png")
+    test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "icon", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="steamcommunity/public/images/apps/205100/")
     # Test disabled flags
     test_disabled({"NOTPROTON_DISCORD_DISABLE": "1"})
     test_disabled({"NOTPROTON_DISCORD_DISABLE_AUTO": "1"})

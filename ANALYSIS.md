@@ -42,6 +42,6 @@ To handle games without native Discord RPC support, `discord_bridge.dylib` inclu
 2. It parses the corresponding Steam manifest (`appmanifest_<appid>.acf`) to obtain the canonical game title.
 3. The thread waits for a configurable grace period (default 3 seconds) for the game to write to any of the Win32 named pipes. If native named pipe traffic is detected, the fallback thread terminates immediately and named pipe forwarding takes precedence.
 4. If the grace period expires with no pipe traffic, the bridge connects directly to Discord's UNIX socket under application ID `1508914471433928824`.
-5. It inspects `~/Library/Application Support/Steam/appcache/librarycache/<appid>/` for the game's 40-character hex icon hash to fetch its 1:1 square icon from the Steam community CDN (`cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/<appid>/<hash>.jpg`), falling back to store header assets if un-cached.
+5. By default, it fetches the official 600x900 HD vertical box art from Steam's CDN (`shared.fastly.steamstatic.com/store_item_assets/steam/apps/<appid>/library_600x900.jpg`), or other asset formats (`header`, `hero`, `logo`, `icon`) configured via `NOTPROTON_DISCORD_ART`.
 6. It sends a `SET_ACTIVITY` payload with `status_display_type: 2`, the game title, elapsed start time, and image assets.
 7. If the game later initiates named pipe traffic, the bridge sends a clear-activity frame and hands control over to the game's native RPC session.

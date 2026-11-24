@@ -27,7 +27,7 @@ Windows games communicate with Discord over Win32 named pipes (`\\.\pipe\discord
 This plugin handles game presence through two methods:
 
 - **Named Pipe Forwarding**: Injected into the Wine runner via `DYLD_INSERT_LIBRARIES`, `discord_bridge.dylib` spawns a Win32 helper (`notproton-discord.exe`) inside the prefix. The helper creates pipes `0` through `9` and relays IPC packets over an authenticated loopback TCP connection to the host dylib, which forwards them to Discord's local UNIX socket. Games with built-in Discord RPC SDK support or community mods communicate through this path.
-- **Steam AppID Fallback**: For games that do not implement the Discord RPC SDK, the dylib reads `STEAM_COMPAT_APP_ID` and parses the local Steam app manifest (`appmanifest_<appid>.acf`) to retrieve the game title. If no named pipe connection occurs within 3 seconds, it connects directly to Discord and sets the presence using the resolved title, elapsed runtime, and the game's official 1:1 square icon from Steam's CDN (with store header fallback). If the game later opens a named pipe, this fallback status disconnects automatically.
+- **Steam AppID Fallback**: For games that do not implement the Discord RPC SDK, the dylib reads `STEAM_COMPAT_APP_ID` and parses the local Steam app manifest (`appmanifest_<appid>.acf`) to retrieve the game title. If no named pipe connection occurs within 3 seconds, it connects directly to Discord and sets the presence using the resolved title, elapsed runtime, and the game's official 600x900 HD cover art from Steam's CDN. If the game later opens a named pipe, this fallback status disconnects automatically.
 
 ### Technical Note: Process Detection vs. Fallback Presence
 
@@ -35,7 +35,7 @@ Discord for Mac tracks user activity through two separate mechanisms:
 
 1. **Native Process Detection (`DiscordGameUtils`)**: Discord polls the macOS process table (`proc_pidinfo`, `NSWorkspace`) against its global game database (`games.json`). In standalone Wine or CrossOver, games running in foreground bottles may match on executable name or window title. Under NotProton, compatibility runners explicitly set `<key>LSUIElement</key><true/>` in the launcher `Info.plist` to prevent auxiliary Wine helper processes from cluttering the macOS Dock, and the executable binary is named `wine`. Discord filters out background `LSUIElement` agents, preventing automatic process-level detection.
 2. **Native Named Pipe RPC**: Games programmed with the Discord SDK write directly to `\\.\pipe\discord-ipc-0`. The plugin proxies these packets verbatim to Discord's UNIX socket, delivering full real-time game telemetry (in-game state, party size, match scores).
-3. **Steam AppID Fallback**: For games that lack native Discord RPC (or where Discord's process scanner fails to match the `wine` process), the plugin reads the Steam AppID and broadcasts a Rich Presence activity frame over Discord's IPC socket (`status_display_type: 2`) using registered Client ID `1508914471433928824`. This displays the game name, elapsed playtime timer, and official Steam square game icon. It is an IPC-level status broadcast rather than a macOS kernel process detection event.
+3. **Steam AppID Fallback**: For games that lack native Discord RPC (or where Discord's process scanner fails to match the `wine` process), the plugin reads the Steam AppID and broadcasts a Rich Presence activity frame over Discord's IPC socket (`status_display_type: 2`) using registered Client ID `1508914471433928824`. This displays the game name, elapsed playtime timer, and official Steam 600x900 HD cover art. It is an IPC-level status broadcast rather than a macOS kernel process detection event.
 
 ## Requirements
 
@@ -93,6 +93,7 @@ You can customize the plugin per-game by setting environment variables in Steam'
 | `NOTPROTON_DISCORD_TITLE="..."` | Auto-detected | Overrides the game title displayed in Discord (useful for mods, fan translations, or non-Steam shortcuts). |
 | `NOTPROTON_DISCORD_STATE="..."` | `"Steam via NotProton"` | Overrides the activity status line subtitle. |
 | `NOTPROTON_DISCORD_APPID=N` | Auto-detected | Manually sets the Steam AppID for icon and title resolution (useful for standalone shortcuts). |
+| `NOTPROTON_DISCORD_ART=...` | `cover` | Artwork style: `cover` (600x900 HD box art), `header` (store banner), `hero` (wide background), `logo` (transparent logo), or `icon` (32x32 classic app icon). |
 | `NOTPROTON_DISCORD_WAIT_SEC=N` | `3` | Seconds to wait for native game pipe traffic before falling back to Steam AppID presence (0–60). |
 | `NOTPROTON_DISCORD_SOCKET_DIR` | Auto-detected | Custom directory path for `discord-ipc-0` (overrides default Darwin temp paths). |
 

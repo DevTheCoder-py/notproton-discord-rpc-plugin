@@ -635,14 +635,34 @@ static void *auto_presence_thread(void *arg)
 
         if (discord_fd >= 0 && (last_broadcast == 0 || (current_time - last_broadcast >= 30))) {
             char image_url[512];
-            char icon_hash[64];
-            if (get_game_icon_hash(info->appid, icon_hash, sizeof(icon_hash))) {
-                snprintf(image_url, sizeof(image_url),
-                         "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/%s/%s.jpg",
-                         info->appid, icon_hash);
-            } else {
+            const char *art_pref = getenv("NOTPROTON_DISCORD_ART");
+            if (art_pref && strcmp(art_pref, "icon") == 0) {
+                char icon_hash[64];
+                if (get_game_icon_hash(info->appid, icon_hash, sizeof(icon_hash))) {
+                    snprintf(image_url, sizeof(image_url),
+                             "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/%s/%s.jpg",
+                             info->appid, icon_hash);
+                } else {
+                    snprintf(image_url, sizeof(image_url),
+                             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_600x900.jpg",
+                             info->appid);
+                }
+            } else if (art_pref && strcmp(art_pref, "header") == 0) {
                 snprintf(image_url, sizeof(image_url),
                          "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/header.jpg",
+                         info->appid);
+            } else if (art_pref && strcmp(art_pref, "hero") == 0) {
+                snprintf(image_url, sizeof(image_url),
+                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_hero.jpg",
+                         info->appid);
+            } else if (art_pref && strcmp(art_pref, "logo") == 0) {
+                snprintf(image_url, sizeof(image_url),
+                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/logo.png",
+                         info->appid);
+            } else {
+                // Default: Official high-definition vertical cover art (600x900)
+                snprintf(image_url, sizeof(image_url),
+                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_600x900.jpg",
                          info->appid);
             }
 
