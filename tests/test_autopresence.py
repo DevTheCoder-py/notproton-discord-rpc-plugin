@@ -22,8 +22,24 @@ def test_game(appid, expected_title, extra_env=None, expected_state=None, expect
         server.bind(sock_path)
         server.listen(1)
 
-        # Set up environment pointing to fake discord socket
+        # Create hermetic mock Steam environment
+        steam_apps = os.path.join(tmpdir, "Library", "Application Support", "Steam", "steamapps")
+        os.makedirs(steam_apps, exist_ok=True)
+        target_id = appid or (extra_env.get("NOTPROTON_DISCORD_APPID") if extra_env else None)
+        if target_id:
+            manifest_path = os.path.join(steam_apps, f"appmanifest_{target_id}.acf")
+            base_name = expected_title.split(" (")[0]
+            with open(manifest_path, "w") as f:
+                f.write(f'"AppState"\n{{\n\t"appid"\t\t"{target_id}"\n\t"name"\t\t"{base_name}"\n}}\n')
+
+            cache_dir = os.path.join(tmpdir, "Library", "Application Support", "Steam", "appcache", "librarycache", target_id)
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(os.path.join(cache_dir, "0123456789abcdef0123456789abcdef01234567.jpg"), "w") as f:
+                f.write("mock")
+
+        # Set up environment pointing to fake discord socket and hermetic HOME
         env = dict(os.environ)
+        env["HOME"] = tmpdir
         env["NOTPROTON_DISCORD_SOCKET_DIR"] = tmpdir
         if appid:
             env["STEAM_COMPAT_APP_ID"] = appid
@@ -88,7 +104,15 @@ def test_disabled(extra_env):
         server.bind(sock_path)
         server.listen(1)
 
+        # Create hermetic mock Steam manifest
+        steam_apps = os.path.join(tmpdir, "Library", "Application Support", "Steam", "steamapps")
+        os.makedirs(steam_apps, exist_ok=True)
+        manifest_path = os.path.join(steam_apps, "appmanifest_205100.acf")
+        with open(manifest_path, "w") as f:
+            f.write('"AppState"\n{\n\t"appid"\t\t"205100"\n\t"name"\t\t"Dishonored"\n}\n')
+
         env = dict(os.environ)
+        env["HOME"] = tmpdir
         env["NOTPROTON_DISCORD_SOCKET_DIR"] = tmpdir
         env["STEAM_COMPAT_APP_ID"] = "205100"
         env["DYLD_INSERT_LIBRARIES"] = os.path.abspath("build/discord_bridge.dylib")
