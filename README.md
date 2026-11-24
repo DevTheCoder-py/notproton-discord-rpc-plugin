@@ -145,4 +145,4 @@ I don't really care and this probably won't break anytime soon. But if something
 
 ## Disclaimer
 
-Code implementation and debugging were heavily AI-assisted, while all project documentation, specifications, and architecture design were written and maintained by me.
+Code implementation and debugging were heavily AI-assisted, while all project documentation, specifications, and architecture design were thoroughly reviewed and maintained by me. (surprise an intermediate python dev somehow started using C used AI -- though it wasn't that complicated)
