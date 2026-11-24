@@ -4,4 +4,5 @@ build/test-client.exe
 *.pyc
 __pycache__/
 notproton_src/
+.cfgg.txt
 
