@@ -39,8 +39,10 @@ Discord for Mac tracks user activity through two separate mechanisms:
 
 ## Requirements
 
-- macOS 12.0+
+- macOS 14.0+
 - NotProton v1.2.0+
+- CrossOver 26.3+ (paid version only)
+- Rosetta 2 (FEX not supported yet due to plugin injection constraints)
 - Discord for Mac
 - `clang` and `mingw-w64` (only required when building from source)
 
