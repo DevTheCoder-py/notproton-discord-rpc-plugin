@@ -44,6 +44,7 @@ Discord for Mac tracks user activity through two separate mechanisms:
 - CrossOver 26.3+ (paid version only)
 - Rosetta 2 (FEX not supported yet due to plugin injection constraints)
 - Discord for Mac
+- Basically everything NotProton requires
 - `clang` and `mingw-w64` (only required when building from source)
 
 ## Installation
@@ -149,7 +150,7 @@ rm -rf ~/Library/Application\ Support/notproton/plugins/discord-rpc*
 
 ## Contributing
 
-I don't really care and this probably won't break anytime soon. But if something actually breaks or Discord/Wine changes down the line, feel free to open a PR and I'll look at it.
+I don't really care and this probably won't break anytime soon. But if something actually breaks or Discord/Wine changes down the line, feel free to open a PR and I'll look at it. Though, please test with newer CrossOver versions if you can and report it!
 
 ---
 
@@ -164,4 +165,6 @@ I don't really care and this probably won't break anytime soon. But if something
 
 Code implementation and debugging were heavily AI-assisted, while all project documentation, specifications, and architecture design were thoroughly reviewed and maintained by me. 
 
-Absolutely none of the c files were written by me I just read and nodded along the way and recommended some stuff. (surprise an intermediate python dev somehow started using C used AI -- though it wasn't that complicated). I am distinctly aware of security concerns so I did my best to address any shortcomings. The tests are also very generic and while actually hand-written by me or guided, was simply basic to intermediate to check if it worked with my setup, thus WOMM 🤷‍♂️ - M4 macbook air with crossover 26.3. The reason why the code worked so well is because I just copied the implemenation by sn0wst0rm. :D
+Absolutely none of the c files were written by me -- so pretty much vibecode. (surprise an intermediate python dev somehow started using C used AI -- though it wasn't that complicated). I am distinctly aware of security concerns so I did my best to address any shortcomings. 
+
+The tests are also very generic and while actually hand-written by me or guided, was simply basic to intermediate to check if it worked with my setup, thus WOMM 🤷‍♂️ - M4 macbook air with crossover 26.3. The reason why the code worked so well is because I just copied the implementation by sn0wst0rm. :D
