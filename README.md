@@ -67,6 +67,7 @@ All plugin files are copied directly into `~/Library/Application Support/notprot
 ~/Library/Application Support/notproton/plugins/
   ├── discord-rpc.conf
   └── discord-rpc/
+      ├── config.conf
       ├── discord_bridge.dylib
       └── notproton-discord.exe
 ```

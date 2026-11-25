@@ -17,11 +17,36 @@ fi
 # Check for pre-built binaries or build from source
 if [ ! -f "$SCRIPT_DIR/build/discord_bridge.dylib" ] || [ ! -f "$SCRIPT_DIR/build/notproton-discord.exe" ]; then
     echo "==> Checking build dependencies..."
-    if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
-        echo "Error: x86_64-w64-mingw32-gcc is required to build the Windows pipe helper."
-        echo "Please install it via Homebrew:"
-        echo "    brew install mingw-w64"
+    if ! command -v clang >/dev/null 2>&1 || ! command -v make >/dev/null 2>&1; then
+        echo "Error: clang and make (Xcode Command Line Tools) are required to build from source."
+        echo "Run 'xcode-select --install', or download pre-built binaries from GitHub Releases."
         exit 1
+    fi
+
+    if ! command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
+        echo "Missing dependency: x86_64-w64-mingw32-gcc (mingw-w64) is required to build the Windows pipe helper."
+        if command -v brew >/dev/null 2>&1; then
+            if [ -t 0 ]; then
+                read -r -p "Install mingw-w64 via Homebrew now (brew install mingw-w64)? [y/N]: " brew_resp
+                case "$brew_resp" in
+                    [yY][eE][sS]|[yY])
+                        brew install mingw-w64
+                        ;;
+                    *)
+                        echo "Aborted. You can install mingw-w64 manually or download pre-built binaries from Releases."
+                        exit 1
+                        ;;
+                esac
+            else
+                echo "Please run: brew install mingw-w64"
+                exit 1
+            fi
+        else
+            echo "Homebrew (brew) was not found on this Mac."
+            echo "Either install Homebrew (https://brew.sh) and run 'brew install mingw-w64',"
+            echo "or download the pre-built notproton-discord-rpc-plugin.zip from GitHub Releases (no compiler needed)."
+            exit 1
+        fi
     fi
 
     echo "==> Building NotProton Discord Rich Presence Plugin..."

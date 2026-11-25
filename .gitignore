@@ -1,4 +1,4 @@
-build/test-client.exe
+build/
 .DS_Store
 *.o
 *.pyc
