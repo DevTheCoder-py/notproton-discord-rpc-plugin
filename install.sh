@@ -33,6 +33,9 @@ mkdir -p "$PLUGIN_SUBDIR"
 cp -f "$SCRIPT_DIR/plugin/discord-rpc.conf" "$CONF_FILE"
 cp -f "$SCRIPT_DIR/build/discord_bridge.dylib" "$PLUGIN_SUBDIR/discord_bridge.dylib"
 cp -f "$SCRIPT_DIR/build/notproton-discord.exe" "$PLUGIN_SUBDIR/notproton-discord.exe"
+if [ ! -f "$PLUGIN_SUBDIR/config.conf" ] && [ -f "$SCRIPT_DIR/plugin/config.conf" ]; then
+    cp "$SCRIPT_DIR/plugin/config.conf" "$PLUGIN_SUBDIR/config.conf"
+fi
 
 echo ""
 echo "======================================================================"

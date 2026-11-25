@@ -53,6 +53,7 @@ install: all
 	cp -f "$(PLUGIN_DIR)/discord-rpc.conf" "$(NOTPROTON_PLUGINS_DIR)/discord-rpc.conf"
 	cp -f "$(DYLIB_TARGET)" "$(PLUGIN_TARGET_DIR)/discord_bridge.dylib"
 	cp -f "$(HELPER_TARGET)" "$(PLUGIN_TARGET_DIR)/notproton-discord.exe"
+	@if [ ! -f "$(PLUGIN_TARGET_DIR)/config.conf" ] && [ -f "$(PLUGIN_DIR)/config.conf" ]; then cp "$(PLUGIN_DIR)/config.conf" "$(PLUGIN_TARGET_DIR)/config.conf"; fi
 	@echo "==> Successfully installed Discord RPC Plugin to $(NOTPROTON_PLUGINS_DIR)"
 	@echo "    - Plugin config: $(NOTPROTON_PLUGINS_DIR)/discord-rpc.conf"
 	@echo "    - Plugin binaries: $(PLUGIN_TARGET_DIR)/"

@@ -541,18 +541,105 @@ static bool get_game_icon_hash(const char *appid, char *out_hash, size_t out_siz
     return false;
 }
 
+struct bridge_config {
+    bool has_state;
+    char state[256];
+    bool has_art;
+    char art[32];
+    bool has_force_auto;
+    bool force_auto;
+    bool has_disable_auto;
+    bool disable_auto;
+    bool has_wait_sec;
+    int wait_sec;
+    bool has_socket_dir;
+    char socket_dir[1024];
+};
+
+static char *trim_whitespace(char *s)
+{
+    while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n') ++s;
+    size_t len = strlen(s);
+    while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t' || s[len - 1] == '\r' || s[len - 1] == '\n')) {
+        s[--len] = '\0';
+    }
+    return s;
+}
+
+static void load_bridge_config(const char *plugin_dir, struct bridge_config *cfg)
+{
+    memset(cfg, 0, sizeof(*cfg));
+    if (!plugin_dir || !*plugin_dir) return;
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/config.conf", plugin_dir);
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+
+    char line[1280];
+    while (fgets(line, sizeof(line), f)) {
+        char *p = trim_whitespace(line);
+        if (!*p || *p == '#' || *p == ';') continue;
+
+        char *eq = strchr(p, '=');
+        if (!eq) continue;
+        *eq = '\0';
+
+        char *key = trim_whitespace(p);
+        char *val = trim_whitespace(eq + 1);
+
+        // Strip matching surrounding quotes ("..." or '...')
+        size_t vlen = strlen(val);
+        if (vlen >= 2 && ((val[0] == '\"' && val[vlen - 1] == '\"') ||
+                          (val[0] == '\'' && val[vlen - 1] == '\''))) {
+            val[vlen - 1] = '\0';
+            ++val;
+        }
+
+        if (strcmp(key, "state") == 0) {
+            cfg->has_state = true;
+            strncpy(cfg->state, val, sizeof(cfg->state) - 1);
+            cfg->state[sizeof(cfg->state) - 1] = '\0';
+        } else if (strcmp(key, "art") == 0 && *val) {
+            cfg->has_art = true;
+            strncpy(cfg->art, val, sizeof(cfg->art) - 1);
+            cfg->art[sizeof(cfg->art) - 1] = '\0';
+        } else if (strcmp(key, "force_auto") == 0 && *val) {
+            cfg->has_force_auto = true;
+            cfg->force_auto = (strcmp(val, "0") != 0 && strcmp(val, "false") != 0);
+        } else if (strcmp(key, "disable_auto") == 0 && *val) {
+            cfg->has_disable_auto = true;
+            cfg->disable_auto = (strcmp(val, "0") != 0 && strcmp(val, "false") != 0);
+        } else if (strcmp(key, "wait_sec") == 0 && *val) {
+            int w = atoi(val);
+            if (w >= 0 && w <= 60) {
+                cfg->has_wait_sec = true;
+                cfg->wait_sec = w;
+            }
+        } else if (strcmp(key, "socket_dir") == 0 && *val) {
+            cfg->has_socket_dir = true;
+            strncpy(cfg->socket_dir, val, sizeof(cfg->socket_dir) - 1);
+            cfg->socket_dir[sizeof(cfg->socket_dir) - 1] = '\0';
+        }
+    }
+    fclose(f);
+}
+
 struct auto_presence_args {
     char appid[64];
     char game_name[256];
     time_t start_time;
+    struct bridge_config cfg;
 };
 
 static void *auto_presence_thread(void *arg)
 {
     struct auto_presence_args *info = (struct auto_presence_args *)arg;
 
+    bool disable_auto = info->cfg.has_disable_auto ? info->cfg.disable_auto : false;
     const char *env_no_auto = getenv("NOTPROTON_DISCORD_DISABLE_AUTO");
-    if (env_no_auto && strcmp(env_no_auto, "0") != 0) {
+    if (env_no_auto) disable_auto = (strcmp(env_no_auto, "0") != 0);
+    if (disable_auto) {
         free(info);
         return NULL;
     }
@@ -565,11 +652,11 @@ static void *auto_presence_thread(void *arg)
 
     log_bridge("[Auto-Presence] Started for game: \"%s\" (AppID: %s)", info->game_name, info->appid);
 
-    bool force_auto = false;
+    bool force_auto = info->cfg.has_force_auto ? info->cfg.force_auto : false;
     const char *env_force = getenv("NOTPROTON_DISCORD_FORCE_AUTO");
-    if (env_force && strcmp(env_force, "0") != 0) force_auto = true;
+    if (env_force) force_auto = (strcmp(env_force, "0") != 0);
 
-    int wait_seconds = 3;
+    int wait_seconds = info->cfg.has_wait_sec ? info->cfg.wait_sec : 3;
     const char *env_wait = getenv("NOTPROTON_DISCORD_WAIT_SEC");
     if (env_wait) {
         int w = atoi(env_wait);
@@ -603,8 +690,15 @@ static void *auto_presence_thread(void *arg)
     const char *custom_state = getenv("NOTPROTON_DISCORD_STATE");
     if (custom_state) {
         json_escape(custom_state, safe_state, sizeof(safe_state));
+    } else if (info->cfg.has_state) {
+        json_escape(info->cfg.state, safe_state, sizeof(safe_state));
     } else {
         snprintf(safe_state, sizeof(safe_state), "Steam via NotProton");
+    }
+
+    const char *art_pref = getenv("NOTPROTON_DISCORD_ART");
+    if ((!art_pref || !*art_pref) && info->cfg.has_art) {
+        art_pref = info->cfg.art;
     }
 
     time_t last_broadcast = 0;
@@ -635,7 +729,6 @@ static void *auto_presence_thread(void *arg)
 
         if (discord_fd >= 0 && (last_broadcast == 0 || (current_time - last_broadcast >= 30))) {
             char image_url[512];
-            const char *art_pref = getenv("NOTPROTON_DISCORD_ART");
             if (art_pref && strcmp(art_pref, "icon") == 0) {
                 char icon_hash[64];
                 if (get_game_icon_hash(info->appid, icon_hash, sizeof(icon_hash))) {
@@ -666,6 +759,13 @@ static void *auto_presence_thread(void *arg)
                          info->appid);
             }
 
+            char state_field[300];
+            if (safe_state[0]) {
+                snprintf(state_field, sizeof(state_field), "\"state\":\"%s\",", safe_state);
+            } else {
+                state_field[0] = '\0';
+            }
+
             char json[3072];
             snprintf(json, sizeof(json),
                      "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%ld,\"activity\":{"
@@ -673,7 +773,7 @@ static void *auto_presence_thread(void *arg)
                      "\"type\":0,"
                      "\"status_display_type\":2,"
                      "\"details\":\"Playing %s\","
-                     "\"state\":\"%s\","
+                     "%s"
                      "\"timestamps\":{\"start\":%lld},"
                      "\"assets\":{"
                      "\"large_image\":\"%s\","
@@ -683,7 +783,7 @@ static void *auto_presence_thread(void *arg)
                      (long)getpid(),
                      safe_title,
                      safe_title,
-                     safe_state,
+                     state_field,
                      (long long)info->start_time,
                      image_url,
                      safe_title,
@@ -908,21 +1008,30 @@ static void discord_bridge_init(void)
     Dl_info info;
     if (!dladdr((void *)&discord_bridge_init, &info) || !info.dli_fname) return;
 
-    char helper_path[1024];
-    strncpy(helper_path, info.dli_fname, sizeof(helper_path) - 1);
-    char *slash = strrchr(helper_path, '/');
+    char plugin_dir[1024];
+    strncpy(plugin_dir, info.dli_fname, sizeof(plugin_dir) - 1);
+    plugin_dir[sizeof(plugin_dir) - 1] = '\0';
+    char *slash = strrchr(plugin_dir, '/');
     if (!slash) return;
-    *(slash + 1) = '\0';
-    strncat(helper_path, "notproton-discord.exe", sizeof(helper_path) - strlen(helper_path) - 1);
+    *slash = '\0';
+
+    char helper_path[1024];
+    snprintf(helper_path, sizeof(helper_path), "%s/notproton-discord.exe", plugin_dir);
 
     if (access(helper_path, R_OK) != 0) {
         // Helper executable not present
         return;
     }
 
-    bool force_auto = false;
+    struct bridge_config cfg;
+    load_bridge_config(plugin_dir, &cfg);
+    if (cfg.has_socket_dir && !getenv("NOTPROTON_DISCORD_SOCKET_DIR")) {
+        setenv("NOTPROTON_DISCORD_SOCKET_DIR", cfg.socket_dir, 0);
+    }
+
+    bool force_auto = cfg.has_force_auto ? cfg.force_auto : false;
     const char *env_force = getenv("NOTPROTON_DISCORD_FORCE_AUTO");
-    if (env_force && strcmp(env_force, "0") != 0) force_auto = true;
+    if (env_force) force_auto = (strcmp(env_force, "0") != 0);
 
     // Detect Steam Game and spawn Auto-Presence
     char appid[64] = {0};
@@ -932,9 +1041,11 @@ static void discord_bridge_init(void)
         if (get_game_name_for_appid(appid, game_name, sizeof(game_name))) {
             struct auto_presence_args *args = malloc(sizeof(*args));
             if (args) {
+                memset(args, 0, sizeof(*args));
                 strncpy(args->appid, appid, sizeof(args->appid) - 1);
                 strncpy(args->game_name, game_name, sizeof(args->game_name) - 1);
                 args->start_time = time(NULL);
+                args->cfg = cfg;
                 pthread_t auto_thread;
                 pthread_attr_t auto_attr;
                 pthread_attr_init(&auto_attr);
@@ -947,7 +1058,7 @@ static void discord_bridge_init(void)
     }
 
     if (force_auto) {
-        log_bridge("NOTPROTON_DISCORD_FORCE_AUTO is set: running pure Auto-Presence mode (skipping Windows pipe helper)");
+        log_bridge("force_auto enabled: running pure Auto-Presence mode (skipping Windows pipe helper)");
         return;
     }
 

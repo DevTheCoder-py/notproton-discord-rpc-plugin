@@ -36,6 +36,7 @@ jobs:
           cp plugin/discord-rpc.conf release-pkg/
           cp build/discord_bridge.dylib release-pkg/discord-rpc/
           cp build/notproton-discord.exe release-pkg/discord-rpc/
+          cp plugin/config.conf release-pkg/discord-rpc/
           cp install.sh README.md release-pkg/
           (cd release-pkg && zip -r ../notproton-discord-rpc-plugin.zip .)
           

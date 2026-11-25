@@ -7,6 +7,7 @@ and transmits a SET_ACTIVITY frame with game title, elapsed timer, and Steam CDN
 """
 
 import os
+import shutil
 import socket
 import struct
 import json
@@ -141,6 +142,73 @@ def test_disabled(extra_env):
         assert not connected, f"Expected no connection when {extra_env} is set, but socket connected"
         print(f"  ok    Disabled flag verified for {extra_env}")
 
+def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", expected_art_substr="library_600x900.jpg"):
+    with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
+        sock_path = os.path.join(tmpdir, "discord-ipc-0")
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(sock_path)
+        server.listen(1)
+
+        # Stage dylib, helper, and config.conf together in tmpdir
+        plugin_dir = os.path.join(tmpdir, "plugin")
+        os.makedirs(plugin_dir, exist_ok=True)
+        dylib_copy = os.path.join(plugin_dir, "discord_bridge.dylib")
+        shutil.copy2("build/discord_bridge.dylib", dylib_copy)
+        shutil.copy2("build/notproton-discord.exe", os.path.join(plugin_dir, "notproton-discord.exe"))
+        with open(os.path.join(plugin_dir, "config.conf"), "w") as f:
+            f.write(config_text)
+
+        steam_apps = os.path.join(tmpdir, "Library", "Application Support", "Steam", "steamapps")
+        os.makedirs(steam_apps, exist_ok=True)
+        with open(os.path.join(steam_apps, "appmanifest_205100.acf"), "w") as f:
+            f.write('"AppState"\n{\n\t"appid"\t\t"205100"\n\t"name"\t\t"Dishonored"\n}\n')
+
+        env = dict(os.environ)
+        env["HOME"] = tmpdir
+        env["NOTPROTON_DISCORD_SOCKET_DIR"] = tmpdir
+        env["STEAM_COMPAT_APP_ID"] = "205100"
+        env["DYLD_INSERT_LIBRARIES"] = dylib_copy
+        if extra_env:
+            env.update(extra_env)
+
+        fake_wine = os.path.join(tmpdir, "wine")
+        subprocess.run(["cc", "-x", "c", "-o", fake_wine, "-"], input=b"#include <unistd.h>\nint main(){ sleep(10); return 0; }\n", check=True)
+
+        proc = subprocess.Popen([fake_wine], env=env)
+        try:
+            server.settimeout(3.0)
+            client, _ = server.accept()
+            client.settimeout(3.0)
+
+            hdr = client.recv(8)
+            op, length = struct.unpack("<II", hdr)
+            assert op == 0
+            client.recv(length)
+
+            ready = json.dumps({"cmd": "DISPATCH", "evt": "READY", "data": {}}).encode("utf-8")
+            client.sendall(struct.pack("<II", 1, len(ready)) + ready)
+
+            hdr = client.recv(8)
+            op, length = struct.unpack("<II", hdr)
+            assert op == 1
+            act_payload = json.loads(client.recv(length).decode("utf-8"))
+            activity = act_payload["args"]["activity"]
+
+            if expected_state is None:
+                assert "state" not in activity, f"Expected state omitted, got {activity.get('state')}"
+            elif expected_state != "__UNSET__":
+                assert activity.get("state") == expected_state, f"Expected state '{expected_state}', got {activity.get('state')}"
+            if expected_art_substr:
+                assert expected_art_substr in activity["assets"]["large_image"], f"Expected '{expected_art_substr}' in {activity['assets']['large_image']}"
+            print(f"  ok    config.conf verified (expected_state={expected_state}, art={expected_art_substr})")
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+            server.close()
+
 def main():
     test_game("205100", "Dishonored")
     test_game("312520", "Rain World")
@@ -153,6 +221,10 @@ def main():
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "header", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="header.jpg")
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "logo", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="logo.png")
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "icon", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="steamcommunity/public/images/apps/205100/")
+    # Test config.conf defaults, empty state omission, and env override
+    test_config_conf('state = "Gaming on Mac"\nart = header\nforce_auto = 1\n', expected_state="Gaming on Mac", expected_art_substr="header.jpg")
+    test_config_conf('state =\nforce_auto = 1\n', expected_state=None)
+    test_config_conf('state = Global Subtext\nforce_auto = 1\n', extra_env={"NOTPROTON_DISCORD_STATE": "Per-Game Override"}, expected_state="Per-Game Override")
     # Test disabled flags
     test_disabled({"NOTPROTON_DISCORD_DISABLE": "1"})
     test_disabled({"NOTPROTON_DISCORD_DISABLE_AUTO": "1"})

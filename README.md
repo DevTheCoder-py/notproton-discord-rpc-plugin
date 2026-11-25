@@ -83,6 +83,20 @@ xattr -dr com.apple.quarantine ~/Library/Application\ Support/notproton/plugins/
 2. In Steam, open game **Properties** $\rightarrow$ **Compatibility** / **General**.
 3. Under **Developer**, enable **Discord Rich Presence**.
 
+### Global Config File (`config.conf`)
+
+Global defaults can be set in `~/Library/Application Support/notproton/plugins/discord-rpc/config.conf` using simple `key = value` pairs. Changes take effect on the next game launch (no Steam restart needed), and installer updates preserve your existing file.
+
+```ini
+state = Steam via NotProton
+art = cover
+force_auto = 0
+disable_auto = 0
+wait_sec = 3
+```
+
+Leave `state =` empty to hide the subtitle completely. Steam Launch Options always override `config.conf`.
+
 ### Environment Variables (Launch Options)
 
 You can customize the plugin per-game by setting environment variables in Steam's **Launch Options** (`Properties` $\rightarrow$ `General` $\rightarrow$ `Launch Options`):
