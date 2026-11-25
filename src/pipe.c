@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <windows.h>
+#include <tlhelp32.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -191,17 +192,72 @@ static bool listen_pipe(struct listener *listener)
     return listener->pending;
 }
 
+static bool is_system_process(const char *exe)
+{
+    static const char *const ignored[] = {
+        "services.exe", "winedevice.exe", "plugplay.exe", "svchost.exe",
+        "rpcss.exe", "explorer.exe", "conhost.exe", "tabtip.exe",
+        "wineboot.exe", "winemenubuilder.exe", "start.exe",
+        "steam.exe", "notproton-discord.exe", "rundll32.exe",
+        NULL
+    };
+    for (size_t i = 0; ignored[i]; ++i) {
+        if (_stricmp(exe, ignored[i]) == 0) return true;
+    }
+    return false;
+}
+
+static bool has_active_app_process(void)
+{
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return true;
+    PROCESSENTRY32 entry = {0};
+    entry.dwSize = sizeof(entry);
+    bool found = false;
+    if (Process32First(snap, &entry)) {
+        do {
+            const char *base = strrchr(entry.szExeFile, '\\');
+            base = base ? base + 1 : entry.szExeFile;
+            if (!is_system_process(base)) {
+                found = true;
+                break;
+            }
+        } while (Process32Next(snap, &entry));
+    }
+    CloseHandle(snap);
+    return found;
+}
+
 static int accept_clients(struct listener *listeners, SOCKET control)
 {
     WSAEVENT event = WSACreateEvent();
     if (event == WSA_INVALID_EVENT) return 1;
     int status = 1;
     if (WSAEventSelect(control, event, FD_READ | FD_CLOSE)) goto finished;
+    bool saw_app = false;
+    unsigned empty_checks = 0;
     for (;;) {
         HANDLE events[BRIDGE_CLIENTS + 1] = {event};
         for (unsigned i = 0; i < BRIDGE_CLIENTS; ++i)
             events[i + 1] = listeners[i].worker ? listeners[i].worker : listeners[i].connection.hEvent;
-        DWORD result = WaitForMultipleObjects(BRIDGE_CLIENTS + 1, events, FALSE, INFINITE);
+        DWORD result = WaitForMultipleObjects(BRIDGE_CLIENTS + 1, events, FALSE, 500);
+        if (result == WAIT_TIMEOUT) {
+            bool has_worker = false;
+            for (unsigned i = 0; i < BRIDGE_CLIENTS; ++i) {
+                if (listeners[i].worker) { has_worker = true; break; }
+            }
+            if (has_active_app_process()) {
+                saw_app = true;
+                empty_checks = 0;
+            } else if (saw_app && !has_worker) {
+                if (++empty_checks >= 4) {
+                    // Game exited: leave prefix cleanly so Wine/Steam can tear down.
+                    status = 0;
+                    break;
+                }
+            }
+            continue;
+        }
         // The control connection stays silent until the native host shuts down.
         if (result == WAIT_OBJECT_0) { status = 0; break; }
         if (result < WAIT_OBJECT_0 + 1 || result > WAIT_OBJECT_0 + BRIDGE_CLIENTS) break;

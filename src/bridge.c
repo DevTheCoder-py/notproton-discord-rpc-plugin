@@ -973,6 +973,7 @@ static void *bridge_thread_proc(void *arg)
     if (error == 0) {
         log_bridge("Helper spawned successfully (pid=%d), running bridge event loop", (int)child);
         run_bridge_loop(listener, token, child, g_wakeup_pipe[0], 0);
+        g_stopping = 1;
     } else {
         log_bridge("Failed to spawn helper: %s (error %d)", strerror(error), error);
         close(listener);
