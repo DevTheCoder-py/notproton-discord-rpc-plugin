@@ -19,30 +19,26 @@ macOS Host
       │
       │ UNIX Domain Socket ($TMPDIR/discord-ipc-0)
       ▼
-  Discord for Mac
+  Discord Mac Client
 ```
 
 Windows games communicate with Discord over Win32 named pipes (`\\.\pipe\discord-ipc-0` through `9`), whereas Discord on macOS listens on a UNIX domain socket. Wine does not bridge these sockets by default.
 
-This plugin handles game presence through two methods:
+This plugin handles game presence through two paths:
 
-- **Named Pipe Forwarding**: Injected into the Wine runner via `DYLD_INSERT_LIBRARIES`, `discord_bridge.dylib` spawns a Win32 helper (`notproton-discord.exe`) inside the prefix. The helper creates pipes `0` through `9` and relays IPC packets over an authenticated loopback TCP connection to the host dylib, which forwards them to Discord's local UNIX socket. Games with built-in Discord RPC SDK support or community mods communicate through this path.
-- **Steam AppID Fallback**: For games that do not implement the Discord RPC SDK, the dylib reads `STEAM_COMPAT_APP_ID` and parses the local Steam app manifest (`appmanifest_<appid>.acf`) to retrieve the game title. If no named pipe connection occurs within 3 seconds, it connects directly to Discord and sets the presence using the resolved title, elapsed runtime, and the game's official 600x900 HD cover art from Steam's CDN. If the game later opens a named pipe, this fallback status disconnects automatically.
+- **Named Pipe Forwarding**: Injected via `DYLD_INSERT_LIBRARIES`, `discord_bridge.dylib` spawns `notproton-discord.exe` inside the prefix to bind `\\.\pipe\discord-ipc-0`..`9` and relay packets over authenticated loopback TCP to Discord's macOS UNIX socket. Games with built-in Discord SDK support use this path.
+- **Steam AppID Fallback**: If no named pipe traffic occurs within 3 seconds, the dylib reads `STEAM_COMPAT_APP_ID` and `appmanifest_<appid>.acf`, then broadcasts a Rich Presence frame (`status_display_type: 2`, Client ID `1508914471433928824`) with the game title, elapsed timer, and Steam 600x900 cover art. If the game later opens a named pipe, fallback clears automatically.
 
-### Technical Note: Process Detection vs. Fallback Presence
-
-Discord for Mac tracks user activity through two separate mechanisms:
-
-1. **Native Process Detection (`DiscordGameUtils`)**: Discord polls the macOS process table (`proc_pidinfo`, `NSWorkspace`) against its global game database (`games.json`). In standalone Wine or CrossOver, games running in foreground bottles may match on executable name or window title. Under NotProton, compatibility runners explicitly set `<key>LSUIElement</key><true/>` in the launcher `Info.plist` to prevent auxiliary Wine helper processes from cluttering the macOS Dock, and the executable binary is named `wine`. Discord filters out background `LSUIElement` agents, preventing automatic process-level detection.
-2. **Native Named Pipe RPC**: Games programmed with the Discord SDK write directly to `\\.\pipe\discord-ipc-0`. The plugin proxies these packets verbatim to Discord's UNIX socket, delivering full real-time game telemetry (in-game state, party size, match scores).
-3. **Steam AppID Fallback**: For games that lack native Discord RPC (or where Discord's process scanner fails to match the `wine` process), the plugin reads the Steam AppID and broadcasts a Rich Presence activity frame over Discord's IPC socket (`status_display_type: 2`) using registered Client ID `1508914471433928824`. This displays the game name, elapsed playtime timer, and official Steam 600x900 HD cover art. It is an IPC-level status broadcast rather than a macOS kernel process detection event.
+> **Why fallback is an IPC broadcast, not native game detection:**  
+> Discord's macOS scanner (`DiscordGameUtils`) polls `proc_pidinfo` and `NSWorkspace` to match running binaries against its database. NotProton's launcher sets `<key>LSUIElement</key><true/>` and names the process `wine` to keep helper windows out of the Dock—and Discord ignores `LSUIElement` background agents. Because `wine` isn't a recognized game binary, fallback presence pushes an RPC activity frame over Discord's IPC socket rather than triggering local process detection.
+> Thus, note that discord will not understand the activity as a known game when using fallback as it is simply just a decorated rich presence from a Discord Application. This is a known problem and impractical to fix when LSUIELEMENT = true. 
 
 ## Requirements
 
 - macOS 14.0+
 - NotProton v1.2.0+
 - CrossOver 26.3+ (paid version only)
-- Rosetta 2 (FEX not supported yet due to plugin injection constraints)
+- Rosetta 2 (FEX i.e CrosOver preview not supported under main branch but planned to add support after plugin-partt3 of Notproton is merged)
 - Discord for Mac
 - Basically everything NotProton requires
 - `clang` and `mingw-w64` (only required when building from source)
@@ -85,62 +81,28 @@ xattr -dr com.apple.quarantine ~/Library/Application\ Support/notproton/plugins/
 2. In Steam, open game **Properties** $\rightarrow$ **Compatibility** / **General**.
 3. Under **Developer**, enable **Discord Rich Presence**.
 
-### Global Config File (`config.conf`)
+Global defaults live in `~/Library/Application Support/notproton/plugins/discord-rpc/config.conf` (`key = value`, applied on next game launch, preserved on updates). Steam **Launch Options** override any setting per game:
 
-Global defaults can be set in `~/Library/Application Support/notproton/plugins/discord-rpc/config.conf` using simple `key = value` pairs. Changes take effect on the next game launch (no Steam restart needed), and installer updates preserve your existing file.
+| `config.conf` Key | Launch Option Override | Default | Description |
+|---|---|---|---|
+| `state` | `NOTPROTON_DISCORD_STATE="..."` | `Steam via NotProton` | Subtitle under game name (empty `state =` hides it). |
+| `art` | `NOTPROTON_DISCORD_ART=...` | `cover` | `cover` (600x900), `header`, `hero`, `logo`, or `icon`. |
+| `force_auto` | `NOTPROTON_DISCORD_FORCE_AUTO=1` | `0` | Skip Win32 pipe helper and start Steam presence immediately. |
+| `disable_auto` | `NOTPROTON_DISCORD_DISABLE_AUTO=1` | `0` | Relay native Discord SDK pipes only (no Steam fallback). |
+| `wait_sec` | `NOTPROTON_DISCORD_WAIT_SEC=N` | `3` | Seconds to wait for native pipe traffic before fallback (0–60). |
+| `socket_dir` | `NOTPROTON_DISCORD_SOCKET_DIR` | Auto-detected | Custom directory for `discord-ipc-0`. |
+| — | `NOTPROTON_DISCORD_DISABLE=1` | `0` | Disable the plugin for a single game launch. |
+| — | `NOTPROTON_DISCORD_TITLE="..."` | Auto-detected | Override game title (mods/shortcuts). |
+| — | `NOTPROTON_DISCORD_APPID=N` | Auto-detected | Override Steam AppID for title/art lookup. |
 
-```ini
-state = Steam via NotProton
-art = cover
-force_auto = 0
-disable_auto = 0
-wait_sec = 3
-```
-
-Leave `state =` empty to hide the subtitle completely. Steam Launch Options always override `config.conf`.
-
-### Environment Variables (Launch Options)
-
-You can customize the plugin per-game by setting environment variables in Steam's **Launch Options** (`Properties` $\rightarrow$ `General` $\rightarrow$ `Launch Options`):
-
-| Variable | Default | Description |
-|---|---|---|
-| `NOTPROTON_DISCORD_DISABLE=1` | `0` | Completely disables the Discord plugin for this game launch. |
-| `NOTPROTON_DISCORD_DISABLE_AUTO=1` | `0` | Disables Steam AppID fallback presence (only relays native Discord SDK named pipes). |
-| `NOTPROTON_DISCORD_FORCE_AUTO=1` | `0` | Skips the Win32 pipe helper and activates Steam presence immediately without the 3-second wait. |
-| `NOTPROTON_DISCORD_TITLE="..."` | Auto-detected | Overrides the game title displayed in Discord (useful for mods, fan translations, or non-Steam shortcuts). |
-| `NOTPROTON_DISCORD_STATE="..."` | `"Steam via NotProton"` | Overrides the activity status line subtitle. |
-| `NOTPROTON_DISCORD_APPID=N` | Auto-detected | Manually sets the Steam AppID for icon and title resolution (useful for standalone shortcuts). |
-| `NOTPROTON_DISCORD_ART=...` | `cover` | Artwork style: `cover` (600x900 HD box art), `header` (store banner), `hero` (wide background), `logo` (transparent logo), or `icon` (32x32 classic app icon). |
-| `NOTPROTON_DISCORD_WAIT_SEC=N` | `3` | Seconds to wait for native game pipe traffic before falling back to Steam AppID presence (0–60). |
-| `NOTPROTON_DISCORD_SOCKET_DIR` | Auto-detected | Custom directory path for `discord-ipc-0` (overrides default Darwin temp paths). |
-
-#### Examples
-
-**Force instant presence with a custom subtitle:**
+Launch option examples (`Properties` $\rightarrow$ `General` $\rightarrow$ `Launch Options`):
 ```bash
-NOTPROTON_DISCORD_FORCE_AUTO=1 NOTPROTON_DISCORD_STATE="Singleplayer Campaign" %command%
-```
-
-**Override title for a mod or non-Steam shortcut:**
-```bash
+NOTPROTON_DISCORD_FORCE_AUTO=1 NOTPROTON_DISCORD_STATE="Singleplayer" %command%
 NOTPROTON_DISCORD_TITLE="Skyrim Together" NOTPROTON_DISCORD_APPID=489830 %command%
-```
-
-**Completely disable Discord status for a specific game:**
-```bash
 NOTPROTON_DISCORD_DISABLE=1 %command%
 ```
 
 ## Uninstallation
-
-From the cloned repository:
-
-```bash
-./install.sh --uninstall
-```
-
-Or if you deleted the repository, remove the plugin files directly:
 
 ```bash
 rm -rf ~/Library/Application\ Support/notproton/plugins/discord-rpc*
