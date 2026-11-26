@@ -4,7 +4,8 @@ A plugin for [NotProton](https://github.com/NotProtonNot/NotProton) (v1.2+) that
 
 <img src="assets/preview.png" alt="Discord Rich Presence Preview" width="300" />
 
-*`small_image`/badge and `subtitle` can be configured.*
+> `small_image`/badge and `subtitle` can be configured.
+> fallback mode only, games with native discord SDK integration will use pipe bridge as normal(identical to native)
 
 ## Overview
 
