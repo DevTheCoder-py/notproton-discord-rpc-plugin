@@ -267,6 +267,113 @@ def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", ex
                 proc.kill()
             server.close()
 
+def test_external_library_and_shortcuts():
+    # 1. External Steam library via libraryfolders.vdf
+    with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
+        sock_path = os.path.join(tmpdir, "discord-ipc-0")
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(sock_path)
+        server.listen(1)
+
+        steam_root = os.path.join(tmpdir, "Library", "Application Support", "Steam")
+        primary_apps = os.path.join(steam_root, "steamapps")
+        ext_apps = os.path.join(tmpdir, "ExternalSSD", "SteamLibrary", "steamapps")
+        os.makedirs(primary_apps, exist_ok=True)
+        os.makedirs(ext_apps, exist_ok=True)
+        with open(os.path.join(primary_apps, "libraryfolders.vdf"), "w") as f:
+            f.write(f'"libraryfolders"\n{{\n\t"1"\n\t{{\n\t\t"path"\t\t"{os.path.join(tmpdir, "ExternalSSD", "SteamLibrary")}"\n\t}}\n}}\n')
+        with open(os.path.join(ext_apps, "appmanifest_999111.acf"), "w") as f:
+            f.write('"AppState"\n{\n\t"appid"\t\t"999111"\n\t"name"\t\t"External Drive Game"\n}\n')
+
+        env = dict(os.environ)
+        env["HOME"] = tmpdir
+        env["DISCORD_RPC_SOCKET_DIR"] = tmpdir
+        env["STEAM_COMPAT_APP_ID"] = "999111"
+        env["DISCORD_RPC_MODE"] = "fallback"
+        env["DISCORD_RPC_CLIENT_ID"] = "999888777666555444"
+        env["DYLD_INSERT_LIBRARIES"] = os.path.abspath("build/discord_bridge.dylib")
+
+        fake_wine = os.path.join(tmpdir, "wine")
+        subprocess.run(["cc", "-x", "c", "-o", fake_wine, "-"], input=b"#include <unistd.h>\nint main(){ sleep(10); return 0; }\n", check=True)
+        proc = subprocess.Popen([fake_wine], env=env)
+        try:
+            server.settimeout(4.0)
+            client, _ = server.accept()
+            client.settimeout(4.0)
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 0
+            hs = json.loads(client.recv(length).decode("utf-8"))
+            assert hs["client_id"] == "999888777666555444", f"Expected custom client_id, got {hs}"
+            ready = json.dumps({"cmd": "DISPATCH", "evt": "READY", "data": {}}).encode("utf-8")
+            client.sendall(struct.pack("<II", 1, len(ready)) + ready)
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 1
+            act = json.loads(client.recv(length).decode("utf-8"))["args"]["activity"]
+            assert act["name"] == "External Drive Game", f"Got {act}"
+            print("  ok    libraryfolders.vdf external drive + custom client_id verified")
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+            server.close()
+
+    # 2. Non-Steam shortcut via binary userdata/*/config/shortcuts.vdf
+    with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
+        sock_path = os.path.join(tmpdir, "discord-ipc-0")
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(sock_path)
+        server.listen(1)
+
+        cfg_dir = os.path.join(tmpdir, "Library", "Application Support", "Steam", "userdata", "12345", "config")
+        os.makedirs(cfg_dir, exist_ok=True)
+        shortcut_id = 0x12345678
+        steam_game_id = str((shortcut_id << 32) | 0x02000000)
+        # Binary VDF: \x00shortcuts\x00 \x000\x00 \x02appid\x00<4B> \x01AppName\x00Shortcut Game\x00 \x08 \x08 \x08
+        vdf = (
+            b"\x00shortcuts\x00"
+            b"\x000\x00"
+            b"\x02appid\x00" + struct.pack("<I", shortcut_id) +
+            b"\x01AppName\x00Shortcut Game\x00"
+            b"\x08\x08\x08"
+        )
+        with open(os.path.join(cfg_dir, "shortcuts.vdf"), "wb") as f:
+            f.write(vdf)
+
+        env = dict(os.environ)
+        env["HOME"] = tmpdir
+        env["DISCORD_RPC_SOCKET_DIR"] = tmpdir
+        env["SteamGameId"] = steam_game_id
+        env["DISCORD_RPC_MODE"] = "fallback"
+        env["DYLD_INSERT_LIBRARIES"] = os.path.abspath("build/discord_bridge.dylib")
+
+        fake_wine = os.path.join(tmpdir, "wine")
+        subprocess.run(["cc", "-x", "c", "-o", fake_wine, "-"], input=b"#include <unistd.h>\nint main(){ sleep(10); return 0; }\n", check=True)
+        proc = subprocess.Popen([fake_wine], env=env)
+        try:
+            server.settimeout(4.0)
+            client, _ = server.accept()
+            client.settimeout(4.0)
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 0
+            client.recv(length)
+            ready = json.dumps({"cmd": "DISPATCH", "evt": "READY", "data": {}}).encode("utf-8")
+            client.sendall(struct.pack("<II", 1, len(ready)) + ready)
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 1
+            act = json.loads(client.recv(length).decode("utf-8"))["args"]["activity"]
+            assert act["name"] == "Shortcut Game", f"Expected 'Shortcut Game', got {act}"
+            assert "assets" not in act, f"Expected no Steam assets for non-Steam shortcut, got {act}"
+            print("  ok    shortcuts.vdf binary non-Steam shortcut title verified")
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+            server.close()
+
 def main():
     test_game("205100", "Dishonored")
     test_game("312520", "Rain World")
@@ -284,6 +391,8 @@ def main():
     test_game(None, "My Non-Steam Game", extra_env={"STEAM_COMPAT_INSTALL_PATH": "/Users/test/Games/My Non-Steam Game", "DISCORD_RPC_MODE": "fallback"}, expected_art_substr=None)
     # Test details fallback on ERROR response
     test_details_fallback()
+    # Test external libraryfolders.vdf, custom client_id, and binary shortcuts.vdf
+    test_external_library_and_shortcuts()
     # Test config.conf defaults, empty subtitle omission, and env override
     test_config_conf('subtitle = "Gaming on Mac"\nartwork = header\nmode = fallback\n', expected_state="Gaming on Mac", expected_art_substr="header.jpg")
     test_config_conf('subtitle =\nmode = fallback\n', expected_state=None)

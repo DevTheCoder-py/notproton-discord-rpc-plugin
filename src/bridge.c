@@ -448,48 +448,232 @@ static void extract_appid(const char *wine_path, char *out_appid, size_t size)
     out_appid[0] = '\0';
 }
 
-static bool get_game_name_for_appid(const char *appid, char *out_name, size_t out_size)
+static bool dir_exists(const char *path)
 {
-    const char *home = getenv("HOME");
-    if (home && appid && *appid) {
+    struct stat st;
+    return path && *path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
 
-    // 1. Check default steamapps appmanifest
+static void resolve_steam_root(char *out_root, size_t out_size)
+{
+    const char *client_path = getenv("STEAM_COMPAT_CLIENT_INSTALL_PATH");
+    if (client_path && client_path[0] == '/') {
+        char buf[1024];
+        strncpy(buf, client_path, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        for (int level = 0; level < 8; ++level) {
+            char probe[1088];
+            snprintf(probe, sizeof(probe), "%s/steamapps", buf);
+            if (dir_exists(probe)) {
+                strncpy(out_root, buf, out_size - 1);
+                out_root[out_size - 1] = '\0';
+                return;
+            }
+            snprintf(probe, sizeof(probe), "%s/userdata", buf);
+            if (dir_exists(probe)) {
+                strncpy(out_root, buf, out_size - 1);
+                out_root[out_size - 1] = '\0';
+                return;
+            }
+            char *slash = strrchr(buf, '/');
+            if (!slash || slash == buf) break;
+            *slash = '\0';
+        }
+    }
+    const char *home = getenv("HOME");
+    if (home && *home) {
+        snprintf(out_root, out_size, "%s/Library/Application Support/Steam", home);
+    } else {
+        out_root[0] = '\0';
+    }
+}
+
+static bool read_appmanifest_name(const char *steamapps_dir, const char *appid, char *out_name, size_t out_size)
+{
     char manifest_path[1024];
-    snprintf(manifest_path, sizeof(manifest_path),
-             "%s/Library/Application Support/Steam/steamapps/appmanifest_%s.acf", home, appid);
+    snprintf(manifest_path, sizeof(manifest_path), "%s/appmanifest_%s.acf", steamapps_dir, appid);
     FILE *f = fopen(manifest_path, "r");
-    if (f) {
-        char line[1024];
-        while (fgets(line, sizeof(line), f)) {
-            char *p = strstr(line, "\"name\"");
-            if (p) {
-                p += 6;
-                while (*p && (*p == ' ' || *p == '\t' || *p == '\"')) ++p;
-                char *end = strchr(p, '\"');
-                if (end) {
-                    *end = '\0';
-                    strncpy(out_name, p, out_size - 1);
-                    out_name[out_size - 1] = '\0';
+    if (!f) return false;
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        char *p = strstr(line, "\"name\"");
+        if (p) {
+            p += 6;
+            while (*p && (*p == ' ' || *p == '\t' || *p == '\"')) ++p;
+            char *end = strchr(p, '\"');
+            if (end) {
+                *end = '\0';
+                strncpy(out_name, p, out_size - 1);
+                out_name[out_size - 1] = '\0';
+                fclose(f);
+                return true;
+            }
+        }
+    }
+    fclose(f);
+    return false;
+}
+
+static bool find_name_in_libraryfolders(const char *steam_root, const char *appid, char *out_name, size_t out_size)
+{
+    char vdf_path[1024];
+    snprintf(vdf_path, sizeof(vdf_path), "%s/steamapps/libraryfolders.vdf", steam_root);
+    FILE *f = fopen(vdf_path, "r");
+    if (!f) return false;
+
+    char line[1280];
+    while (fgets(line, sizeof(line), f)) {
+        char *p = strstr(line, "\"path\"");
+        if (!p) continue;
+        p += 6;
+        while (*p && (*p == ' ' || *p == '\t' || *p == '\"')) ++p;
+        char *end = strchr(p, '\"');
+        if (!end || end == p) continue;
+        *end = '\0';
+
+        // Unescape doubled backslashes if present
+        char lib_path[1024];
+        size_t o = 0;
+        for (char *s = p; *s && o + 1 < sizeof(lib_path); ++s) {
+            if (s[0] == '\\' && s[1] == '\\') ++s;
+            lib_path[o++] = *s;
+        }
+        lib_path[o] = '\0';
+
+        char steamapps[1088];
+        snprintf(steamapps, sizeof(steamapps), "%s/steamapps", lib_path);
+        if (read_appmanifest_name(steamapps, appid, out_name, out_size)) {
+            fclose(f);
+            return true;
+        }
+    }
+    fclose(f);
+    return false;
+}
+
+static bool parse_shortcuts_vdf(const unsigned char **cursor, const unsigned char *end,
+                                uint32_t wanted_id, unsigned depth,
+                                char *out_name, size_t out_size)
+{
+    char title[256] = {0};
+    uint32_t id = 0;
+    bool has_id = false;
+    while (*cursor < end) {
+        unsigned type = *(*cursor)++;
+        if (type == 8) {
+            if (depth == 2 && has_id && id == wanted_id && title[0]) {
+                strncpy(out_name, title, out_size - 1);
+                out_name[out_size - 1] = '\0';
+                return true;
+            }
+            return false;
+        }
+        const unsigned char *key = *cursor;
+        const unsigned char *zero = memchr(key, 0, (size_t)(end - key));
+        if (!zero) break;
+        *cursor = zero + 1;
+        if (type == 0 && depth < 8) {
+            if (parse_shortcuts_vdf(cursor, end, wanted_id, depth + 1, out_name, out_size)) {
+                return true;
+            }
+        } else if (type == 1) {
+            const unsigned char *val = *cursor;
+            zero = memchr(val, 0, (size_t)(end - val));
+            if (!zero) break;
+            if (depth == 2 && strcasecmp((const char *)key, "appname") == 0) {
+                size_t len = (size_t)(zero - val);
+                if (len >= sizeof(title)) len = sizeof(title) - 1;
+                memcpy(title, val, len);
+                title[len] = '\0';
+            }
+            *cursor = zero + 1;
+        } else if (type == 2 && (end - *cursor) >= 4) {
+            if (depth == 2 && strcasecmp((const char *)key, "appid") == 0) {
+                memcpy(&id, *cursor, 4);
+                has_id = true;
+            }
+            *cursor += 4;
+        } else {
+            break;
+        }
+    }
+    *cursor = end;
+    return false;
+}
+
+static bool find_shortcut_name(const char *steam_root, uint32_t wanted_id, char *out_name, size_t out_size)
+{
+    char userdata_dir[1024];
+    snprintf(userdata_dir, sizeof(userdata_dir), "%s/userdata", steam_root);
+    DIR *d = opendir(userdata_dir);
+    if (!d) return false;
+
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char vdf_path[1280];
+        snprintf(vdf_path, sizeof(vdf_path), "%s/%s/config/shortcuts.vdf", userdata_dir, entry->d_name);
+        FILE *f = fopen(vdf_path, "rb");
+        if (!f) continue;
+
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        if (sz > 0 && sz <= 4 * 1024 * 1024) {
+            unsigned char *buf = malloc((size_t)sz);
+            if (buf && fread(buf, 1, (size_t)sz, f) == (size_t)sz) {
+                const unsigned char *cur = buf;
+                if (parse_shortcuts_vdf(&cur, buf + sz, wanted_id, 0, out_name, out_size)) {
+                    free(buf);
                     fclose(f);
+                    closedir(d);
                     return true;
                 }
             }
+            free(buf);
         }
         fclose(f);
     }
+    closedir(d);
+    return false;
+}
 
-    // 2. Check NotProton launchers/<appid>/runner/.../wine.app/Contents/Info.plist CFBundleName
-    char plist_path[1024];
-    snprintf(plist_path, sizeof(plist_path),
-             "%s/Library/Application Support/notproton/launchers/%s/runner/lib/wine/x86_64-unix/wine.app/Contents/Info.plist",
-             home, appid);
-    f = fopen(plist_path, "r");
-    if (f) {
-        char line[1024];
-        while (fgets(line, sizeof(line), f)) {
-            char *p = strstr(line, "<key>CFBundleName</key>");
-            if (p) {
-                if (fgets(line, sizeof(line), f)) {
+static bool get_game_name_for_appid(const char *appid, char *out_name, size_t out_size)
+{
+    const char *home = getenv("HOME");
+    char steam_root[1024] = {0};
+    resolve_steam_root(steam_root, sizeof(steam_root));
+
+    if (steam_root[0] && appid && *appid) {
+        // 1. Check primary steamapps + external Steam libraries in libraryfolders.vdf
+        char steamapps[1088];
+        snprintf(steamapps, sizeof(steamapps), "%s/steamapps", steam_root);
+        if (read_appmanifest_name(steamapps, appid, out_name, out_size)) return true;
+        if (find_name_in_libraryfolders(steam_root, appid, out_name, out_size)) return true;
+    }
+
+    // 2. Check non-Steam shortcut title in userdata/*/config/shortcuts.vdf
+    const char *sgid = getenv("SteamGameId");
+    if (steam_root[0] && sgid && *sgid) {
+        unsigned long long gid = strtoull(sgid, NULL, 10);
+        if ((gid & 0xFFFFFFFFULL) == 0x02000000ULL) {
+            uint32_t shortcut_id = (uint32_t)(gid >> 32);
+            if (find_shortcut_name(steam_root, shortcut_id, out_name, out_size)) return true;
+        }
+    }
+
+    if (home && appid && *appid) {
+        // 3. Check NotProton launchers/<appid>/runner/.../wine.app/Contents/Info.plist CFBundleName
+        char plist_path[1024];
+        snprintf(plist_path, sizeof(plist_path),
+                 "%s/Library/Application Support/notproton/launchers/%s/runner/lib/wine/x86_64-unix/wine.app/Contents/Info.plist",
+                 home, appid);
+        FILE *f = fopen(plist_path, "r");
+        if (f) {
+            char line[1024];
+            while (fgets(line, sizeof(line), f)) {
+                char *p = strstr(line, "<key>CFBundleName</key>");
+                if (p && fgets(line, sizeof(line), f)) {
                     char *start = strstr(line, "<string>");
                     if (start) {
                         start += 8;
@@ -504,12 +688,11 @@ static bool get_game_name_for_appid(const char *appid, char *out_name, size_t ou
                     }
                 }
             }
+            fclose(f);
         }
-        fclose(f);
-    }
     }
 
-    // 3. Fallback to STEAM_COMPAT_INSTALL_PATH folder basename (for non-Steam shortcuts)
+    // 4. Fallback to STEAM_COMPAT_INSTALL_PATH folder basename (for non-Steam shortcuts)
     const char *install_path = getenv("STEAM_COMPAT_INSTALL_PATH");
     if (install_path && *install_path) {
         char buf[1024];
@@ -531,12 +714,12 @@ static bool get_game_name_for_appid(const char *appid, char *out_name, size_t ou
 
 static bool get_game_icon_hash(const char *appid, char *out_hash, size_t out_size)
 {
-    const char *home = getenv("HOME");
-    if (!home || !appid || !*appid) return false;
+    char steam_root[1024] = {0};
+    resolve_steam_root(steam_root, sizeof(steam_root));
+    if (!steam_root[0] || !appid || !*appid) return false;
 
-    char dir_path[1024];
-    snprintf(dir_path, sizeof(dir_path),
-             "%s/Library/Application Support/Steam/appcache/librarycache/%s", home, appid);
+    char dir_path[1088];
+    snprintf(dir_path, sizeof(dir_path), "%s/appcache/librarycache/%s", steam_root, appid);
     DIR *d = opendir(dir_path);
     if (!d) return false;
 
@@ -579,6 +762,8 @@ struct bridge_config {
     int wait_sec;
     bool has_socket_dir;
     char socket_dir[1024];
+    bool has_client_id;
+    char client_id[32];
 };
 
 static char *trim_whitespace(char *s)
@@ -662,6 +847,10 @@ static void load_bridge_config(const char *plugin_dir, struct bridge_config *cfg
             cfg->has_socket_dir = true;
             strncpy(cfg->socket_dir, val, sizeof(cfg->socket_dir) - 1);
             cfg->socket_dir[sizeof(cfg->socket_dir) - 1] = '\0';
+        } else if (strcmp(key, "client_id") == 0 && *val) {
+            cfg->has_client_id = true;
+            strncpy(cfg->client_id, val, sizeof(cfg->client_id) - 1);
+            cfg->client_id[sizeof(cfg->client_id) - 1] = '\0';
         }
     }
     fclose(f);
@@ -781,8 +970,13 @@ static void *auto_presence_thread(void *arg)
         if (discord_fd < 0) {
             discord_fd = connect_discord();
             if (discord_fd >= 0) {
+                const char *client_id = DEFAULT_DISCORD_CLIENT_ID;
+                const char *env_cid = getenv("DISCORD_RPC_CLIENT_ID");
+                if (env_cid && *env_cid) client_id = env_cid;
+                else if (info->cfg.has_client_id && info->cfg.client_id[0]) client_id = info->cfg.client_id;
+
                 char handshake[256];
-                snprintf(handshake, sizeof(handshake), "{\"v\":1,\"client_id\":\"%s\"}", DEFAULT_DISCORD_CLIENT_ID);
+                snprintf(handshake, sizeof(handshake), "{\"v\":1,\"client_id\":\"%s\"}", client_id);
                 if (write_ipc_frame(discord_fd, 0, handshake) == 0) {
                     uint32_t op = 0;
                     char resp[4096];
