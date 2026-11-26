@@ -199,6 +199,8 @@ static bool is_system_process(const char *exe)
         "rpcss.exe", "explorer.exe", "conhost.exe", "tabtip.exe",
         "wineboot.exe", "winemenubuilder.exe", "start.exe",
         "steam.exe", "notproton-discord.exe", "rundll32.exe",
+        "dxsetup.exe", "vcredist_x86.exe", "vcredist_x64.exe",
+        "vc_redist.x86.exe", "vc_redist.x64.exe", "msiexec.exe",
         NULL
     };
     for (size_t i = 0; ignored[i]; ++i) {
