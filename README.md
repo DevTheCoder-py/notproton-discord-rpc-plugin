@@ -135,5 +135,6 @@ Please report any issues you have when using it. Even positive reports are appre
 
 ## Disclaimer
 
-Code implementation and debugging were AI-assisted(Especially ones written in C), while all project documentation, specifications, and architecture design were thoroughly written or reviewed and maintained by me. 
+Code implementation and debugging were AI-assisted(Especially ones written in C), while all project documentation, specifications, and architecture design were thoroughly written or reviewed and maintained by me. Hermetic tests are used and vetted to ensure reliability across many edge cases and possible shortcomings. I also use reproducible and verifiable builds to ensure utmost safety and minimal danger in the event of failure.
+
 This project has only been verified to work on my own machines so far, an M1 mac mini and an M4 macbook air. Please create an issue if something goes wrong on your end.
