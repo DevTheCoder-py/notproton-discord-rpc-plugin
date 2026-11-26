@@ -764,6 +764,8 @@ struct bridge_config {
     char socket_dir[1024];
     bool has_client_id;
     char client_id[32];
+    bool has_small_image;
+    char small_image[512];
 };
 
 static char *trim_whitespace(char *s)
@@ -851,6 +853,10 @@ static void load_bridge_config(const char *plugin_dir, struct bridge_config *cfg
             cfg->has_client_id = true;
             strncpy(cfg->client_id, val, sizeof(cfg->client_id) - 1);
             cfg->client_id[sizeof(cfg->client_id) - 1] = '\0';
+        } else if (strcmp(key, "small_image") == 0 && *val) {
+            cfg->has_small_image = true;
+            strncpy(cfg->small_image, val, sizeof(cfg->small_image) - 1);
+            cfg->small_image[sizeof(cfg->small_image) - 1] = '\0';
         }
     }
     fclose(f);
@@ -961,6 +967,14 @@ static void *auto_presence_thread(void *arg)
         art_pref = info->cfg.art;
     }
 
+    char safe_small_image[768] = {0};
+    const char *env_small = getenv("DISCORD_RPC_SMALL_IMAGE");
+    if (env_small) {
+        if (*env_small) json_escape(env_small, safe_small_image, sizeof(safe_small_image));
+    } else if (info->cfg.has_small_image && info->cfg.small_image[0]) {
+        json_escape(info->cfg.small_image, safe_small_image, sizeof(safe_small_image));
+    }
+
     time_t last_broadcast = 0;
     bool use_details_fallback = false;
 
@@ -1034,29 +1048,36 @@ static void *auto_presence_thread(void *arg)
                 state_field[0] = '\0';
             }
 
-            char assets_field[1024];
-            if (image_url[0]) {
+            char assets_field[1600];
+            if (image_url[0] && safe_small_image[0]) {
+                snprintf(assets_field, sizeof(assets_field),
+                         ",\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\",\"small_image\":\"%s\"}",
+                         image_url, safe_title, safe_small_image);
+            } else if (image_url[0]) {
                 snprintf(assets_field, sizeof(assets_field),
                          ",\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\"}",
                          image_url, safe_title);
+            } else if (safe_small_image[0]) {
+                snprintf(assets_field, sizeof(assets_field),
+                         ",\"assets\":{\"small_image\":\"%s\"}",
+                         safe_small_image);
             } else {
                 assets_field[0] = '\0';
             }
 
             const char *nonce_id = info->appid[0] ? info->appid : "game";
-            char json[3584];
+            char json[4096];
             if (!use_details_fallback) {
                 snprintf(json, sizeof(json),
                          "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%ld,\"activity\":{"
                          "\"name\":\"%s\","
                          "\"type\":0,"
                          "\"status_display_type\":2,"
-                         "\"details\":\"Playing %s\","
                          "%s"
                          "\"timestamps\":{\"start\":%lld}"
                          "%s"
                          "}},\"nonce\":\"notproton-%s-%ld\"}",
-                         (long)getpid(), safe_title, safe_title, state_field,
+                         (long)getpid(), safe_title, state_field,
                          (long long)info->start_time, assets_field, nonce_id, (long)current_time);
             } else {
                 snprintf(json, sizeof(json),

@@ -200,7 +200,7 @@ def test_details_fallback():
                 proc.kill()
             server.close()
 
-def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", expected_art_substr="library_600x900.jpg"):
+def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", expected_art_substr="library_600x900.jpg", expected_small_image="__UNSET__"):
     with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
         sock_path = os.path.join(tmpdir, "discord-ipc-0")
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -251,6 +251,7 @@ def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", ex
             assert op == 1
             act_payload = json.loads(client.recv(length).decode("utf-8"))
             activity = act_payload["args"]["activity"]
+            assert "details" not in activity, f"Expected redundant details omitted, got {activity.get('details')}"
 
             if expected_state is None:
                 assert "state" not in activity, f"Expected state omitted, got {activity.get('state')}"
@@ -258,7 +259,11 @@ def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", ex
                 assert activity.get("state") == expected_state, f"Expected state '{expected_state}', got {activity.get('state')}"
             if expected_art_substr:
                 assert expected_art_substr in activity["assets"]["large_image"], f"Expected '{expected_art_substr}' in {activity['assets']['large_image']}"
-            print(f"  ok    config.conf verified (expected_state={expected_state}, art={expected_art_substr})")
+            if expected_small_image is None:
+                assert "small_image" not in activity.get("assets", {}), f"Expected small_image omitted, got {activity.get('assets')}"
+            elif expected_small_image != "__UNSET__":
+                assert activity.get("assets", {}).get("small_image") == expected_small_image, f"Expected small_image '{expected_small_image}', got {activity.get('assets')}"
+            print(f"  ok    config.conf verified (expected_state={expected_state}, art={expected_art_substr}, small_image={expected_small_image})")
         finally:
             proc.terminate()
             try:
@@ -393,6 +398,11 @@ def main():
     test_details_fallback()
     # Test external libraryfolders.vdf, custom client_id, and binary shortcuts.vdf
     test_external_library_and_shortcuts()
+    # Test small_image in config.conf, empty omission, and DISCORD_RPC_SMALL_IMAGE override
+    test_config_conf('small_image =\nmode = fallback\n', expected_small_image=None)
+    test_config_conf('small_image = https://example.com/badge.png\nmode = fallback\n', expected_small_image="https://example.com/badge.png")
+    test_config_conf('small_image = https://example.com/badge.png\nmode = fallback\n', extra_env={"DISCORD_RPC_SMALL_IMAGE": "custom_asset_key"}, expected_small_image="custom_asset_key")
+    test_config_conf('small_image = https://example.com/badge.png\nmode = fallback\n', extra_env={"DISCORD_RPC_SMALL_IMAGE": ""}, expected_small_image=None)
     # Test config.conf defaults, empty subtitle omission, and env override
     test_config_conf('subtitle = "Gaming on Mac"\nartwork = header\nmode = fallback\n', expected_state="Gaming on Mac", expected_art_substr="header.jpg")
     test_config_conf('subtitle =\nmode = fallback\n', expected_state=None)
