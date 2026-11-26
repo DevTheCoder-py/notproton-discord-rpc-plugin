@@ -2,7 +2,9 @@
 
 A plugin for [NotProton](https://github.com/NotProtonNot/NotProton) (v1.2+) that bridges Discord game presence from Wine to the macOS Discord desktop client.
 
-![Discord Rich Presence Preview](assets/preview.png)
+<img src="assets/preview.png" alt="Discord Rich Presence Preview" width="300" />
+
+*`small_image`/badge and `subtitle` can be configured.*
 
 ## Overview
 
