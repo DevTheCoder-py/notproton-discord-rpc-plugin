@@ -2,6 +2,8 @@
 
 A plugin for [NotProton](https://github.com/NotProtonNot/NotProton) (v1.2+) that bridges Discord game presence from Wine to the macOS Discord desktop client.
 
+![Discord Rich Presence Preview](assets/preview.png)
+
 ## Overview
 
 ```text
@@ -32,6 +34,7 @@ This plugin handles game presence through two paths:
 > **Why fallback is an IPC broadcast, not native game detection:**  
 > Discord's macOS scanner (`DiscordGameUtils`) polls `proc_pidinfo` and `NSWorkspace` to match running binaries against its database. NotProton's launcher sets `<key>LSUIElement</key><true/>` and names the process `wine` to keep helper windows out of the Dock—and Discord ignores `LSUIElement` background agents. Because `wine` isn't a recognized game binary, fallback presence pushes an RPC activity frame over Discord's IPC socket rather than triggering local process detection.
 
+> [!IMPORTANT]
 > Thus, note that discord will not understand the activity as a known game when using fallback as it is simply just a decorated rich presence from a Discord Application. This is a known problem and impractical to fix when LSUIELEMENT = true. 
 
 ## Requirements
@@ -91,6 +94,7 @@ Global defaults live in `~/Library/Application Support/notproton/plugins/discord
 | `subtitle` | `DISCORD_RPC_SUBTITLE="..."` | `Steam via NotProton` | Subtitle under game name (empty `subtitle =` hides it). |
 | `socket_dir` | `DISCORD_RPC_SOCKET_DIR` | Auto-detected | Custom directory for `discord-ipc-0`. |
 | `client_id` | `DISCORD_RPC_CLIENT_ID` | `1508914471433928824` | Custom Discord Application ID for fallback presence. |
+| `small_image` | `DISCORD_RPC_SMALL_IMAGE` | Empty (disabled) | Optional small badge image (URL or Discord asset key). |
 | — | `DISCORD_RPC_DISABLE=1` | `0` | Disable the plugin for a single game launch. |
 | — | `DISCORD_RPC_GAME_NAME="..."` | Auto-detected | Override game title (mods/shortcuts). |
 | — | `DISCORD_RPC_STEAM_APPID=N` | Auto-detected | Override Steam AppID for title/art lookup. |
