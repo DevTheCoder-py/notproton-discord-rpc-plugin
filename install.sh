@@ -6,12 +6,57 @@ PLUGIN_SUBDIR="$DEST_DIR/discord-rpc"
 CONF_FILE="$DEST_DIR/discord-rpc.conf"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [ "${1:-}" = "--uninstall" ] || [ "${1:-}" = "-u" ]; then
+ACTION="install"
+NO_PROMPT=0
+
+usage() {
+    cat <<EOF
+Usage: ./install.sh [OPTIONS]
+
+Options:
+  -r, --reinstall   Remove existing plugin files (including config.conf) and reinstall
+  -u, --uninstall   Remove the installed plugin and exit
+      --no-prompt   Skip interactive prompts after installation
+  -h, --help        Show this help message and exit
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -u|--uninstall)
+            ACTION="uninstall"
+            ;;
+        -r|--reinstall)
+            ACTION="reinstall"
+            ;;
+        --no-prompt)
+            NO_PROMPT=1
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [ "$ACTION" = "uninstall" ]; then
     echo "==> Uninstalling NotProton Discord Rich Presence Plugin..."
     rm -f "$CONF_FILE"
     rm -rf "$PLUGIN_SUBDIR"
     echo "==> Uninstallation complete."
     exit 0
+fi
+
+if [ "$ACTION" = "reinstall" ]; then
+    echo "==> Removing existing plugin before reinstalling..."
+    rm -f "$CONF_FILE"
+    rm -rf "$PLUGIN_SUBDIR"
 fi
 
 # Check for pre-built binaries or build from source
@@ -84,7 +129,7 @@ echo "  (or: rm -rf '$DEST_DIR/discord-rpc*')"
 echo "======================================================================"
 
 # Optional interactive cleanup of the cloned repository
-if [ -t 0 ] && [ "${1:-}" != "--no-prompt" ]; then
+if [ -t 0 ] && [ "$NO_PROMPT" -eq 0 ]; then
     echo ""
     read -r -p "Would you like to delete this cloned build directory now? [y/N]: " response
     case "$response" in
