@@ -113,7 +113,8 @@ static int connect_discord(void)
         }
     }
 
-    const char *override = getenv("NOTPROTON_DISCORD_SOCKET_DIR");
+    const char *override = getenv("DISCORD_RPC_SOCKET_DIR");
+    if (!override || !*override) override = getenv("NOTPROTON_DISCORD_SOCKET_DIR");
     const char *roots[] = {getenv("TMPDIR"), user_temp, darwin_t[0] ? darwin_t : NULL, "/tmp"};
     if (override) { roots[0] = override; roots[1] = roots[2] = roots[3] = NULL; }
     for (size_t root = 0; root < sizeof(roots) / sizeof(roots[0]); ++root) {
@@ -411,9 +412,15 @@ static void json_escape(const char *src, char *dst, size_t dst_size)
     dst[o] = '\0';
 }
 
+static const char *getenv_alias(const char *primary, const char *legacy)
+{
+    const char *v = getenv(primary);
+    return v ? v : getenv(legacy);
+}
+
 static void extract_appid(const char *wine_path, char *out_appid, size_t size)
 {
-    const char *custom_id = getenv("NOTPROTON_DISCORD_APPID");
+    const char *custom_id = getenv_alias("DISCORD_RPC_STEAM_APPID", "NOTPROTON_DISCORD_APPID");
     if (custom_id && *custom_id) {
         strncpy(out_appid, custom_id, size - 1);
         out_appid[size - 1] = '\0';
@@ -444,7 +451,7 @@ static void extract_appid(const char *wine_path, char *out_appid, size_t size)
 static bool get_game_name_for_appid(const char *appid, char *out_name, size_t out_size)
 {
     const char *home = getenv("HOME");
-    if (!home || !appid || !*appid) return false;
+    if (home && appid && *appid) {
 
     // 1. Check default steamapps appmanifest
     char manifest_path[1024];
@@ -499,6 +506,24 @@ static bool get_game_name_for_appid(const char *appid, char *out_name, size_t ou
             }
         }
         fclose(f);
+    }
+    }
+
+    // 3. Fallback to STEAM_COMPAT_INSTALL_PATH folder basename (for non-Steam shortcuts)
+    const char *install_path = getenv("STEAM_COMPAT_INSTALL_PATH");
+    if (install_path && *install_path) {
+        char buf[1024];
+        strncpy(buf, install_path, sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+        size_t len = strlen(buf);
+        while (len > 1 && buf[len - 1] == '/') buf[--len] = '\0';
+        const char *slash = strrchr(buf, '/');
+        const char *base = slash ? slash + 1 : buf;
+        if (*base && strcmp(base, "common") != 0 && strcmp(base, "/") != 0) {
+            strncpy(out_name, base, out_size - 1);
+            out_name[out_size - 1] = '\0';
+            return true;
+        }
     }
 
     return false;
@@ -596,21 +621,38 @@ static void load_bridge_config(const char *plugin_dir, struct bridge_config *cfg
             ++val;
         }
 
-        if (strcmp(key, "state") == 0) {
+        if (strcmp(key, "subtitle") == 0 || strcmp(key, "state") == 0) {
             cfg->has_state = true;
             strncpy(cfg->state, val, sizeof(cfg->state) - 1);
             cfg->state[sizeof(cfg->state) - 1] = '\0';
-        } else if (strcmp(key, "art") == 0 && *val) {
+        } else if ((strcmp(key, "artwork") == 0 || strcmp(key, "art") == 0) && *val) {
             cfg->has_art = true;
             strncpy(cfg->art, val, sizeof(cfg->art) - 1);
             cfg->art[sizeof(cfg->art) - 1] = '\0';
+        } else if (strcmp(key, "mode") == 0 && *val) {
+            if (strcmp(val, "fallback") == 0 || strcmp(val, "instant") == 0) {
+                cfg->has_force_auto = true;
+                cfg->force_auto = true;
+                cfg->has_disable_auto = true;
+                cfg->disable_auto = false;
+            } else if (strcmp(val, "native_only") == 0) {
+                cfg->has_disable_auto = true;
+                cfg->disable_auto = true;
+                cfg->has_force_auto = true;
+                cfg->force_auto = false;
+            } else if (strcmp(val, "auto") == 0) {
+                cfg->has_force_auto = true;
+                cfg->force_auto = false;
+                cfg->has_disable_auto = true;
+                cfg->disable_auto = false;
+            }
         } else if (strcmp(key, "force_auto") == 0 && *val) {
             cfg->has_force_auto = true;
             cfg->force_auto = (strcmp(val, "0") != 0 && strcmp(val, "false") != 0);
         } else if (strcmp(key, "disable_auto") == 0 && *val) {
             cfg->has_disable_auto = true;
             cfg->disable_auto = (strcmp(val, "0") != 0 && strcmp(val, "false") != 0);
-        } else if (strcmp(key, "wait_sec") == 0 && *val) {
+        } else if ((strcmp(key, "fallback_delay") == 0 || strcmp(key, "wait_sec") == 0) && *val) {
             int w = atoi(val);
             if (w >= 0 && w <= 60) {
                 cfg->has_wait_sec = true;
@@ -625,6 +667,34 @@ static void load_bridge_config(const char *plugin_dir, struct bridge_config *cfg
     fclose(f);
 }
 
+static void resolve_mode_flags(const struct bridge_config *cfg, bool *out_force_auto, bool *out_disable_auto)
+{
+    bool force_auto = cfg->has_force_auto ? cfg->force_auto : false;
+    bool disable_auto = cfg->has_disable_auto ? cfg->disable_auto : false;
+
+    const char *env_mode = getenv("DISCORD_RPC_MODE");
+    if (env_mode && *env_mode) {
+        if (strcmp(env_mode, "fallback") == 0 || strcmp(env_mode, "instant") == 0) {
+            force_auto = true;
+            disable_auto = false;
+        } else if (strcmp(env_mode, "native_only") == 0) {
+            disable_auto = true;
+            force_auto = false;
+        } else if (strcmp(env_mode, "auto") == 0) {
+            force_auto = false;
+            disable_auto = false;
+        }
+    }
+
+    const char *env_force = getenv("NOTPROTON_DISCORD_FORCE_AUTO");
+    if (env_force) force_auto = (strcmp(env_force, "0") != 0);
+    const char *env_no_auto = getenv("NOTPROTON_DISCORD_DISABLE_AUTO");
+    if (env_no_auto) disable_auto = (strcmp(env_no_auto, "0") != 0);
+
+    *out_force_auto = force_auto;
+    *out_disable_auto = disable_auto;
+}
+
 struct auto_presence_args {
     char appid[64];
     char game_name[256];
@@ -632,39 +702,40 @@ struct auto_presence_args {
     struct bridge_config cfg;
 };
 
+static bool is_ipc_error(const char *resp)
+{
+    return strstr(resp, "\"evt\":\"ERROR\"") != NULL ||
+           strstr(resp, "\"evt\": \"ERROR\"") != NULL;
+}
+
 static void *auto_presence_thread(void *arg)
 {
     struct auto_presence_args *info = (struct auto_presence_args *)arg;
 
-    bool disable_auto = info->cfg.has_disable_auto ? info->cfg.disable_auto : false;
-    const char *env_no_auto = getenv("NOTPROTON_DISCORD_DISABLE_AUTO");
-    if (env_no_auto) disable_auto = (strcmp(env_no_auto, "0") != 0);
+    bool force_auto = false;
+    bool disable_auto = false;
+    resolve_mode_flags(&info->cfg, &force_auto, &disable_auto);
     if (disable_auto) {
         free(info);
         return NULL;
     }
 
-    const char *custom_title = getenv("NOTPROTON_DISCORD_TITLE");
+    const char *custom_title = getenv_alias("DISCORD_RPC_GAME_NAME", "NOTPROTON_DISCORD_TITLE");
     if (custom_title && *custom_title) {
         strncpy(info->game_name, custom_title, sizeof(info->game_name) - 1);
         info->game_name[sizeof(info->game_name) - 1] = '\0';
     }
 
-    log_bridge("[Auto-Presence] Started for game: \"%s\" (AppID: %s)", info->game_name, info->appid);
-
-    bool force_auto = info->cfg.has_force_auto ? info->cfg.force_auto : false;
-    const char *env_force = getenv("NOTPROTON_DISCORD_FORCE_AUTO");
-    if (env_force) force_auto = (strcmp(env_force, "0") != 0);
+    log_bridge("[Auto-Presence] Started for game: \"%s\" (AppID: %s)", info->game_name, info->appid[0] ? info->appid : "none");
 
     int wait_seconds = info->cfg.has_wait_sec ? info->cfg.wait_sec : 3;
-    const char *env_wait = getenv("NOTPROTON_DISCORD_WAIT_SEC");
-    if (env_wait) {
+    const char *env_wait = getenv_alias("DISCORD_RPC_FALLBACK_DELAY", "NOTPROTON_DISCORD_WAIT_SEC");
+    if (env_wait && *env_wait) {
         int w = atoi(env_wait);
         if (w >= 0 && w <= 60) wait_seconds = w;
     }
 
     // Grace period to see if the game connects with native RPC
-    // If NOTPROTON_DISCORD_FORCE_AUTO is set, skip the wait and activate immediately
     if (!force_auto && wait_seconds > 0) {
         int steps = wait_seconds * 10;
         for (int i = 0; i < steps; ++i) {
@@ -687,7 +758,7 @@ static void *auto_presence_thread(void *arg)
     json_escape(info->game_name, safe_title, sizeof(safe_title));
 
     char safe_state[256];
-    const char *custom_state = getenv("NOTPROTON_DISCORD_STATE");
+    const char *custom_state = getenv_alias("DISCORD_RPC_SUBTITLE", "NOTPROTON_DISCORD_STATE");
     if (custom_state) {
         json_escape(custom_state, safe_state, sizeof(safe_state));
     } else if (info->cfg.has_state) {
@@ -696,12 +767,13 @@ static void *auto_presence_thread(void *arg)
         snprintf(safe_state, sizeof(safe_state), "Steam via NotProton");
     }
 
-    const char *art_pref = getenv("NOTPROTON_DISCORD_ART");
+    const char *art_pref = getenv_alias("DISCORD_RPC_ARTWORK", "NOTPROTON_DISCORD_ART");
     if ((!art_pref || !*art_pref) && info->cfg.has_art) {
         art_pref = info->cfg.art;
     }
 
     time_t last_broadcast = 0;
+    bool use_details_fallback = false;
 
     while (!g_stopping && !g_game_rpc_active) {
         time_t current_time = time(NULL);
@@ -728,35 +800,37 @@ static void *auto_presence_thread(void *arg)
         }
 
         if (discord_fd >= 0 && (last_broadcast == 0 || (current_time - last_broadcast >= 30))) {
-            char image_url[512];
-            if (art_pref && strcmp(art_pref, "icon") == 0) {
-                char icon_hash[64];
-                if (get_game_icon_hash(info->appid, icon_hash, sizeof(icon_hash))) {
+            char image_url[512] = {0};
+            if (info->appid[0]) {
+                if (art_pref && strcmp(art_pref, "icon") == 0) {
+                    char icon_hash[64];
+                    if (get_game_icon_hash(info->appid, icon_hash, sizeof(icon_hash))) {
+                        snprintf(image_url, sizeof(image_url),
+                                 "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/%s/%s.jpg",
+                                 info->appid, icon_hash);
+                    } else {
+                        snprintf(image_url, sizeof(image_url),
+                                 "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_600x900.jpg",
+                                 info->appid);
+                    }
+                } else if (art_pref && strcmp(art_pref, "header") == 0) {
                     snprintf(image_url, sizeof(image_url),
-                             "https://cdn.cloudflare.steamstatic.com/steamcommunity/public/images/apps/%s/%s.jpg",
-                             info->appid, icon_hash);
+                             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/header.jpg",
+                             info->appid);
+                } else if (art_pref && strcmp(art_pref, "hero") == 0) {
+                    snprintf(image_url, sizeof(image_url),
+                             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_hero.jpg",
+                             info->appid);
+                } else if (art_pref && strcmp(art_pref, "logo") == 0) {
+                    snprintf(image_url, sizeof(image_url),
+                             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/logo.png",
+                             info->appid);
                 } else {
+                    // Default: Official high-definition vertical cover art (600x900)
                     snprintf(image_url, sizeof(image_url),
                              "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_600x900.jpg",
                              info->appid);
                 }
-            } else if (art_pref && strcmp(art_pref, "header") == 0) {
-                snprintf(image_url, sizeof(image_url),
-                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/header.jpg",
-                         info->appid);
-            } else if (art_pref && strcmp(art_pref, "hero") == 0) {
-                snprintf(image_url, sizeof(image_url),
-                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_hero.jpg",
-                         info->appid);
-            } else if (art_pref && strcmp(art_pref, "logo") == 0) {
-                snprintf(image_url, sizeof(image_url),
-                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/logo.png",
-                         info->appid);
-            } else {
-                // Default: Official high-definition vertical cover art (600x900)
-                snprintf(image_url, sizeof(image_url),
-                         "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/%s/library_600x900.jpg",
-                         info->appid);
             }
 
             char state_field[300];
@@ -766,38 +840,77 @@ static void *auto_presence_thread(void *arg)
                 state_field[0] = '\0';
             }
 
-            char json[3072];
-            snprintf(json, sizeof(json),
-                     "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%ld,\"activity\":{"
-                     "\"name\":\"%s\","
-                     "\"type\":0,"
-                     "\"status_display_type\":2,"
-                     "\"details\":\"Playing %s\","
-                     "%s"
-                     "\"timestamps\":{\"start\":%lld},"
-                     "\"assets\":{"
-                     "\"large_image\":\"%s\","
-                     "\"large_text\":\"%s\""
-                     "}"
-                     "}},\"nonce\":\"notproton-%s-%ld\"}",
-                     (long)getpid(),
-                     safe_title,
-                     safe_title,
-                     state_field,
-                     (long long)info->start_time,
-                     image_url,
-                     safe_title,
-                     info->appid,
-                     (long)current_time);
+            char assets_field[1024];
+            if (image_url[0]) {
+                snprintf(assets_field, sizeof(assets_field),
+                         ",\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\"}",
+                         image_url, safe_title);
+            } else {
+                assets_field[0] = '\0';
+            }
+
+            const char *nonce_id = info->appid[0] ? info->appid : "game";
+            char json[3584];
+            if (!use_details_fallback) {
+                snprintf(json, sizeof(json),
+                         "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%ld,\"activity\":{"
+                         "\"name\":\"%s\","
+                         "\"type\":0,"
+                         "\"status_display_type\":2,"
+                         "\"details\":\"Playing %s\","
+                         "%s"
+                         "\"timestamps\":{\"start\":%lld}"
+                         "%s"
+                         "}},\"nonce\":\"notproton-%s-%ld\"}",
+                         (long)getpid(), safe_title, safe_title, state_field,
+                         (long long)info->start_time, assets_field, nonce_id, (long)current_time);
+            } else {
+                snprintf(json, sizeof(json),
+                         "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%ld,\"activity\":{"
+                         "\"type\":0,"
+                         "\"details\":\"Playing %s\","
+                         "%s"
+                         "\"timestamps\":{\"start\":%lld}"
+                         "%s"
+                         "}},\"nonce\":\"notproton-%s-%ld\"}",
+                         (long)getpid(), safe_title, state_field,
+                         (long long)info->start_time, assets_field, nonce_id, (long)current_time);
+            }
 
             if (write_ipc_frame(discord_fd, 1, json) == 0) {
                 uint32_t op = 0;
                 char resp[4096];
                 if (read_ipc_frame(discord_fd, &op, resp, sizeof(resp)) == 0 && op != 2) {
-                    if (last_broadcast == 0) {
-                        log_bridge("[Auto-Presence] Broadcasted Discord presence: \"Playing %s\" with cover art and timer", info->game_name);
+                    if (!use_details_fallback && is_ipc_error(resp)) {
+                        log_bridge("[Auto-Presence] Discord rejected name override; retrying with details fallback");
+                        use_details_fallback = true;
+                        snprintf(json, sizeof(json),
+                                 "{\"cmd\":\"SET_ACTIVITY\",\"args\":{\"pid\":%ld,\"activity\":{"
+                                 "\"type\":0,"
+                                 "\"details\":\"Playing %s\","
+                                 "%s"
+                                 "\"timestamps\":{\"start\":%lld}"
+                                 "%s"
+                                 "}},\"nonce\":\"notproton-%s-%ld\"}",
+                                 (long)getpid(), safe_title, state_field,
+                                 (long long)info->start_time, assets_field, nonce_id, (long)current_time);
+                        if (write_ipc_frame(discord_fd, 1, json) == 0 &&
+                            read_ipc_frame(discord_fd, &op, resp, sizeof(resp)) == 0 &&
+                            op != 2 && !is_ipc_error(resp)) {
+                            if (last_broadcast == 0) {
+                                log_bridge("[Auto-Presence] Broadcasted Discord presence (details fallback): \"Playing %s\"", info->game_name);
+                            }
+                            last_broadcast = current_time;
+                        } else {
+                            close(discord_fd);
+                            discord_fd = -1;
+                        }
+                    } else {
+                        if (last_broadcast == 0) {
+                            log_bridge("[Auto-Presence] Broadcasted Discord presence: \"Playing %s\" with cover art and timer", info->game_name);
+                        }
+                        last_broadcast = current_time;
                     }
-                    last_broadcast = current_time;
                 } else {
                     close(discord_fd);
                     discord_fd = -1;
@@ -986,7 +1099,7 @@ static void *bridge_thread_proc(void *arg)
 __attribute__((constructor))
 static void discord_bridge_init(void)
 {
-    const char *env_disable = getenv("NOTPROTON_DISCORD_DISABLE");
+    const char *env_disable = getenv_alias("DISCORD_RPC_DISABLE", "NOTPROTON_DISCORD_DISABLE");
     if (env_disable && strcmp(env_disable, "0") != 0) return;
 
     // Prevent double-init or recursing into child processes
@@ -1026,40 +1139,49 @@ static void discord_bridge_init(void)
 
     struct bridge_config cfg;
     load_bridge_config(plugin_dir, &cfg);
-    if (cfg.has_socket_dir && !getenv("NOTPROTON_DISCORD_SOCKET_DIR")) {
-        setenv("NOTPROTON_DISCORD_SOCKET_DIR", cfg.socket_dir, 0);
+    if (cfg.has_socket_dir && !getenv("DISCORD_RPC_SOCKET_DIR") && !getenv("NOTPROTON_DISCORD_SOCKET_DIR")) {
+        setenv("DISCORD_RPC_SOCKET_DIR", cfg.socket_dir, 0);
     }
 
-    bool force_auto = cfg.has_force_auto ? cfg.force_auto : false;
-    const char *env_force = getenv("NOTPROTON_DISCORD_FORCE_AUTO");
-    if (env_force) force_auto = (strcmp(env_force, "0") != 0);
+    bool force_auto = false;
+    bool disable_auto = false;
+    resolve_mode_flags(&cfg, &force_auto, &disable_auto);
+    (void)disable_auto;
 
-    // Detect Steam Game and spawn Auto-Presence
+    // Detect Steam Game (or install folder / custom game_name) and spawn Auto-Presence
     char appid[64] = {0};
     extract_appid(wine_path, appid, sizeof(appid));
-    if (appid[0]) {
-        char game_name[256] = {0};
-        if (get_game_name_for_appid(appid, game_name, sizeof(game_name))) {
-            struct auto_presence_args *args = malloc(sizeof(*args));
-            if (args) {
-                memset(args, 0, sizeof(*args));
-                strncpy(args->appid, appid, sizeof(args->appid) - 1);
-                strncpy(args->game_name, game_name, sizeof(args->game_name) - 1);
-                args->start_time = time(NULL);
-                args->cfg = cfg;
-                pthread_t auto_thread;
-                pthread_attr_t auto_attr;
-                pthread_attr_init(&auto_attr);
-                pthread_attr_setstacksize(&auto_attr, 1024 * 1024);
-                pthread_create(&auto_thread, &auto_attr, auto_presence_thread, args);
-                pthread_detach(auto_thread);
-                pthread_attr_destroy(&auto_attr);
-            }
+    char game_name[256] = {0};
+    const char *custom_title = getenv_alias("DISCORD_RPC_GAME_NAME", "NOTPROTON_DISCORD_TITLE");
+    bool has_name = false;
+    if (custom_title && *custom_title) {
+        strncpy(game_name, custom_title, sizeof(game_name) - 1);
+        game_name[sizeof(game_name) - 1] = '\0';
+        has_name = true;
+    } else {
+        has_name = get_game_name_for_appid(appid, game_name, sizeof(game_name));
+    }
+
+    if (has_name) {
+        struct auto_presence_args *args = malloc(sizeof(*args));
+        if (args) {
+            memset(args, 0, sizeof(*args));
+            strncpy(args->appid, appid, sizeof(args->appid) - 1);
+            strncpy(args->game_name, game_name, sizeof(args->game_name) - 1);
+            args->start_time = time(NULL);
+            args->cfg = cfg;
+            pthread_t auto_thread;
+            pthread_attr_t auto_attr;
+            pthread_attr_init(&auto_attr);
+            pthread_attr_setstacksize(&auto_attr, 1024 * 1024);
+            pthread_create(&auto_thread, &auto_attr, auto_presence_thread, args);
+            pthread_detach(auto_thread);
+            pthread_attr_destroy(&auto_attr);
         }
     }
 
     if (force_auto) {
-        log_bridge("force_auto enabled: running pure Auto-Presence mode (skipping Windows pipe helper)");
+        log_bridge("mode=fallback enabled: running pure Auto-Presence mode (skipping Windows pipe helper)");
         return;
     }
 

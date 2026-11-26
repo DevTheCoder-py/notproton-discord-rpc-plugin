@@ -142,6 +142,64 @@ def test_disabled(extra_env):
         assert not connected, f"Expected no connection when {extra_env} is set, but socket connected"
         print(f"  ok    Disabled flag verified for {extra_env}")
 
+def test_details_fallback():
+    with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
+        sock_path = os.path.join(tmpdir, "discord-ipc-0")
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(sock_path)
+        server.listen(1)
+
+        steam_apps = os.path.join(tmpdir, "Library", "Application Support", "Steam", "steamapps")
+        os.makedirs(steam_apps, exist_ok=True)
+        with open(os.path.join(steam_apps, "appmanifest_205100.acf"), "w") as f:
+            f.write('"AppState"\n{\n\t"appid"\t\t"205100"\n\t"name"\t\t"Dishonored"\n}\n')
+
+        env = dict(os.environ)
+        env["HOME"] = tmpdir
+        env["DISCORD_RPC_SOCKET_DIR"] = tmpdir
+        env["STEAM_COMPAT_APP_ID"] = "205100"
+        env["DISCORD_RPC_MODE"] = "fallback"
+        env["DYLD_INSERT_LIBRARIES"] = os.path.abspath("build/discord_bridge.dylib")
+
+        fake_wine = os.path.join(tmpdir, "wine")
+        subprocess.run(["cc", "-x", "c", "-o", fake_wine, "-"], input=b"#include <unistd.h>\nint main(){ sleep(10); return 0; }\n", check=True)
+        proc = subprocess.Popen([fake_wine], env=env)
+        try:
+            server.settimeout(4.0)
+            client, _ = server.accept()
+            client.settimeout(4.0)
+
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 0
+            client.recv(length)
+            ready = json.dumps({"cmd": "DISPATCH", "evt": "READY", "data": {}}).encode("utf-8")
+            client.sendall(struct.pack("<II", 1, len(ready)) + ready)
+
+            # First SET_ACTIVITY has name + status_display_type -> reject with ERROR
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 1
+            first = json.loads(client.recv(length).decode("utf-8"))
+            assert first["args"]["activity"].get("name") == "Dishonored"
+            err = json.dumps({"cmd": "SET_ACTIVITY", "evt": "ERROR", "data": {"code": 4000}}).encode("utf-8")
+            client.sendall(struct.pack("<II", 1, len(err)) + err)
+
+            # Retry should omit name & status_display_type and keep details
+            op, length = struct.unpack("<II", client.recv(8))
+            assert op == 1
+            retry = json.loads(client.recv(length).decode("utf-8"))
+            act = retry["args"]["activity"]
+            assert "name" not in act, f"Expected name omitted on retry, got {act}"
+            assert "status_display_type" not in act
+            assert act["details"] == "Playing Dishonored"
+            print("  ok    Discord details fallback verified when name override is rejected")
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+            server.close()
+
 def test_config_conf(config_text, extra_env=None, expected_state="__UNSET__", expected_art_substr="library_600x900.jpg"):
     with tempfile.TemporaryDirectory(dir="/tmp") as tmpdir:
         sock_path = os.path.join(tmpdir, "discord-ipc-0")
@@ -221,11 +279,18 @@ def main():
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "header", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="header.jpg")
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "logo", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="logo.png")
     test_game("205100", "Dishonored", extra_env={"NOTPROTON_DISCORD_ART": "icon", "NOTPROTON_DISCORD_FORCE_AUTO": "1"}, expected_art_substr="steamcommunity/public/images/apps/205100/")
-    # Test config.conf defaults, empty state omission, and env override
-    test_config_conf('state = "Gaming on Mac"\nart = header\nforce_auto = 1\n', expected_state="Gaming on Mac", expected_art_substr="header.jpg")
-    test_config_conf('state =\nforce_auto = 1\n', expected_state=None)
-    test_config_conf('state = Global Subtext\nforce_auto = 1\n', extra_env={"NOTPROTON_DISCORD_STATE": "Per-Game Override"}, expected_state="Per-Game Override")
-    # Test disabled flags
+    # Test new direct DISCORD_RPC_* names & install folder fallback
+    test_game("205100", "Dishonored (Mod)", extra_env={"DISCORD_RPC_GAME_NAME": "Dishonored (Mod)", "DISCORD_RPC_MODE": "fallback", "DISCORD_RPC_SUBTITLE": "Co-op", "DISCORD_RPC_ARTWORK": "logo"}, expected_state="Co-op", expected_art_substr="logo.png")
+    test_game(None, "My Non-Steam Game", extra_env={"STEAM_COMPAT_INSTALL_PATH": "/Users/test/Games/My Non-Steam Game", "DISCORD_RPC_MODE": "fallback"}, expected_art_substr=None)
+    # Test details fallback on ERROR response
+    test_details_fallback()
+    # Test config.conf defaults, empty subtitle omission, and env override
+    test_config_conf('subtitle = "Gaming on Mac"\nartwork = header\nmode = fallback\n', expected_state="Gaming on Mac", expected_art_substr="header.jpg")
+    test_config_conf('subtitle =\nmode = fallback\n', expected_state=None)
+    test_config_conf('subtitle = Global Subtext\nmode = fallback\n', extra_env={"DISCORD_RPC_SUBTITLE": "Per-Game Override"}, expected_state="Per-Game Override")
+    # Test disabled flags (both new and legacy)
+    test_disabled({"DISCORD_RPC_DISABLE": "1"})
+    test_disabled({"DISCORD_RPC_MODE": "native_only"})
     test_disabled({"NOTPROTON_DISCORD_DISABLE": "1"})
     test_disabled({"NOTPROTON_DISCORD_DISABLE_AUTO": "1"})
     print("==> Auto-Presence test suite passed successfully!")
