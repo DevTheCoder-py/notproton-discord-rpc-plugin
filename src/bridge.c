@@ -766,6 +766,8 @@ struct bridge_config {
     char client_id[32];
     bool has_small_image;
     char small_image[512];
+    bool has_large_image_override;
+    char large_image_override[512];
 };
 
 static char *trim_whitespace(char *s)
@@ -857,6 +859,10 @@ static void load_bridge_config(const char *plugin_dir, struct bridge_config *cfg
             cfg->has_small_image = true;
             strncpy(cfg->small_image, val, sizeof(cfg->small_image) - 1);
             cfg->small_image[sizeof(cfg->small_image) - 1] = '\0';
+        } else if (strcmp(key, "large_image_override") == 0 && *val) {
+            cfg->has_large_image_override = true;
+            strncpy(cfg->large_image_override, val, sizeof(cfg->large_image_override) - 1);
+            cfg->large_image_override[sizeof(cfg->large_image_override) - 1] = '\0';
         }
     }
     fclose(f);
@@ -975,6 +981,14 @@ static void *auto_presence_thread(void *arg)
         json_escape(info->cfg.small_image, safe_small_image, sizeof(safe_small_image));
     }
 
+    char safe_large_image_override[768] = {0};
+    const char *env_large = getenv("DISCORD_RPC_LARGE_IMAGE_OVERRIDE");
+    if (env_large) {
+        if (*env_large) json_escape(env_large, safe_large_image_override, sizeof(safe_large_image_override));
+    } else if (info->cfg.has_large_image_override && info->cfg.large_image_override[0]) {
+        json_escape(info->cfg.large_image_override, safe_large_image_override, sizeof(safe_large_image_override));
+    }
+
     time_t last_broadcast = 0;
     bool use_details_fallback = false;
 
@@ -1048,15 +1062,17 @@ static void *auto_presence_thread(void *arg)
                 state_field[0] = '\0';
             }
 
+            const char *large_img = safe_large_image_override[0] ? safe_large_image_override : image_url;
+
             char assets_field[1600];
-            if (image_url[0] && safe_small_image[0]) {
+            if (large_img[0] && safe_small_image[0]) {
                 snprintf(assets_field, sizeof(assets_field),
                          ",\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\",\"small_image\":\"%s\"}",
-                         image_url, safe_title, safe_small_image);
-            } else if (image_url[0]) {
+                         large_img, safe_title, safe_small_image);
+            } else if (large_img[0]) {
                 snprintf(assets_field, sizeof(assets_field),
                          ",\"assets\":{\"large_image\":\"%s\",\"large_text\":\"%s\"}",
-                         image_url, safe_title);
+                         large_img, safe_title);
             } else if (safe_small_image[0]) {
                 snprintf(assets_field, sizeof(assets_field),
                          ",\"assets\":{\"small_image\":\"%s\"}",

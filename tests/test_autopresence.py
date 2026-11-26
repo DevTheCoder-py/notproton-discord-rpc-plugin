@@ -403,6 +403,10 @@ def main():
     test_config_conf('small_image = https://example.com/badge.png\nmode = fallback\n', expected_small_image="https://example.com/badge.png")
     test_config_conf('small_image = https://example.com/badge.png\nmode = fallback\n', extra_env={"DISCORD_RPC_SMALL_IMAGE": "custom_asset_key"}, expected_small_image="custom_asset_key")
     test_config_conf('small_image = https://example.com/badge.png\nmode = fallback\n', extra_env={"DISCORD_RPC_SMALL_IMAGE": ""}, expected_small_image=None)
+    # Test large_image_override in config.conf and DISCORD_RPC_LARGE_IMAGE_OVERRIDE override
+    test_config_conf('large_image_override = https://example.com/cover.png\nmode = fallback\n', expected_art_substr="https://example.com/cover.png")
+    test_config_conf('large_image_override = https://example.com/cover.png\nmode = fallback\n', extra_env={"DISCORD_RPC_LARGE_IMAGE_OVERRIDE": "custom_large_key"}, expected_art_substr="custom_large_key")
+    test_config_conf('large_image_override = https://example.com/cover.png\nmode = fallback\n', extra_env={"DISCORD_RPC_LARGE_IMAGE_OVERRIDE": ""}, expected_art_substr="library_600x900.jpg")
     # Test config.conf defaults, empty subtitle omission, and env override
     test_config_conf('subtitle = "Gaming on Mac"\nartwork = header\nmode = fallback\n', expected_state="Gaming on Mac", expected_art_substr="header.jpg")
     test_config_conf('subtitle =\nmode = fallback\n', expected_state=None)

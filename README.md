@@ -99,6 +99,7 @@ Global defaults live in `~/Library/Application Support/notproton/plugins/discord
 | `socket_dir` | `DISCORD_RPC_SOCKET_DIR` | Auto-detected | Custom directory for `discord-ipc-0`. |
 | `client_id` | `DISCORD_RPC_CLIENT_ID` | `1508914471433928824` | Custom Discord Application ID for fallback presence. |
 | `small_image` | `DISCORD_RPC_SMALL_IMAGE` | Empty (disabled) | Optional small badge image (URL or Discord asset key). |
+| `large_image_override` | `DISCORD_RPC_LARGE_IMAGE_OVERRIDE` | Empty (auto Steam art) | Override large artwork with a custom URL or Discord asset key. |
 | — | `DISCORD_RPC_DISABLE=1` | `0` | Disable the plugin for a single game launch. |
 | — | `DISCORD_RPC_GAME_NAME="..."` | Auto-detected | Override game title (mods/shortcuts). |
 | — | `DISCORD_RPC_STEAM_APPID=N` | Auto-detected | Override Steam AppID for title/art lookup. |
