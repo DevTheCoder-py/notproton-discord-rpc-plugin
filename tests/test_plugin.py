@@ -41,6 +41,12 @@ def test_plugin_conf_schema():
     assert sec.get("inject") == "1", f"Expected inject=1, got {sec.get('inject')}"
     assert "requires" in sec, "Missing 'requires' field"
     assert sec["requires"].endswith("discord_bridge.dylib"), "requires should point to discord_bridge.dylib"
+    assert "NOTPROTON_ENV_DISCORD_RPC_MODE" in conf, "Missing [NOTPROTON_ENV_DISCORD_RPC_MODE]"
+    assert conf["NOTPROTON_ENV_DISCORD_RPC_MODE"].get("type") == "choice"
+    assert conf["NOTPROTON_ENV_DISCORD_RPC_MODE"].get("depends") == "NOTPROTON_DISCORD_BRIDGE"
+    assert "NOTPROTON_ENV_DISCORD_RPC_ARTWORK" in conf, "Missing [NOTPROTON_ENV_DISCORD_RPC_ARTWORK]"
+    assert conf["NOTPROTON_ENV_DISCORD_RPC_ARTWORK"].get("type") == "choice"
+    assert conf["NOTPROTON_ENV_DISCORD_RPC_ARTWORK"].get("depends") == "NOTPROTON_DISCORD_BRIDGE"
     print("  ok    plugin conf schema matches NotProton specifications")
 
 
