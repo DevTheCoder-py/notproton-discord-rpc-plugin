@@ -80,27 +80,25 @@ xattr -dr com.apple.quarantine ~/Library/Application\ Support/notproton/plugins/
 
 1. In NotProton, verify that `Discord Rich Presence` appears under **Plugins**.
 2. In Steam, open game **Properties** $\rightarrow$ **Compatibility** / **General**.
-3. Under **Developer**, enable **Discord Rich Presence**.
+3. Under **Developer**, enable **Discord Rich Presence** (and pick **Presence mode** / **Cover art style** directly in the UI).
 
-Global defaults live in `~/Library/Application Support/notproton/plugins/discord-rpc/config.conf` (`key = value`, applied on next game launch, preserved on updates). Steam **Launch Options** override any setting per game:
+Global defaults live in `~/Library/Application Support/notproton/plugins/discord-rpc/config.conf` (`key = value`, applied on next game launch, preserved on updates). Steam UI options and **Launch Options** override `config.conf` per game:
 
 | `config.conf` Key | Launch Option Override | Default | Description |
 |---|---|---|---|
-| `state` | `NOTPROTON_DISCORD_STATE="..."` | `Steam via NotProton` | Subtitle under game name (empty `state =` hides it). |
-| `art` | `NOTPROTON_DISCORD_ART=...` | `cover` | `cover` (600x900), `header`, `hero`, `logo`, or `icon`. |
-| `force_auto` | `NOTPROTON_DISCORD_FORCE_AUTO=1` | `0` | Skip Win32 pipe helper and start Steam presence immediately. |
-| `disable_auto` | `NOTPROTON_DISCORD_DISABLE_AUTO=1` | `0` | Relay native Discord SDK pipes only (no Steam fallback). |
-| `wait_sec` | `NOTPROTON_DISCORD_WAIT_SEC=N` | `3` | Seconds to wait for native pipe traffic before fallback (0–60). |
-| `socket_dir` | `NOTPROTON_DISCORD_SOCKET_DIR` | Auto-detected | Custom directory for `discord-ipc-0`. |
-| — | `NOTPROTON_DISCORD_DISABLE=1` | `0` | Disable the plugin for a single game launch. |
-| — | `NOTPROTON_DISCORD_TITLE="..."` | Auto-detected | Override game title (mods/shortcuts). |
-| — | `NOTPROTON_DISCORD_APPID=N` | Auto-detected | Override Steam AppID for title/art lookup. |
+| `mode` | `DISCORD_RPC_MODE=...` | `auto` | `auto` (wait 3s then fallback), `fallback` (Steam presence only), or `native_only` (SDK pipes only). |
+| `artwork` | `DISCORD_RPC_ARTWORK=...` | `cover` | `cover` (600x900), `header`, `hero`, `logo`, or `icon`. |
+| `subtitle` | `DISCORD_RPC_SUBTITLE="..."` | `Steam via NotProton` | Subtitle under game name (empty `subtitle =` hides it). |
+| `socket_dir` | `DISCORD_RPC_SOCKET_DIR` | Auto-detected | Custom directory for `discord-ipc-0`. |
+| — | `DISCORD_RPC_DISABLE=1` | `0` | Disable the plugin for a single game launch. |
+| — | `DISCORD_RPC_GAME_NAME="..."` | Auto-detected | Override game title (mods/shortcuts). |
+| — | `DISCORD_RPC_STEAM_APPID=N` | Auto-detected | Override Steam AppID for title/art lookup. |
 
 Launch option examples (`Properties` $\rightarrow$ `General` $\rightarrow$ `Launch Options`):
 ```bash
-NOTPROTON_DISCORD_FORCE_AUTO=1 NOTPROTON_DISCORD_STATE="Singleplayer" %command%
-NOTPROTON_DISCORD_TITLE="Skyrim Together" NOTPROTON_DISCORD_APPID=489830 %command%
-NOTPROTON_DISCORD_DISABLE=1 %command%
+DISCORD_RPC_MODE=fallback DISCORD_RPC_SUBTITLE="Singleplayer" %command%
+DISCORD_RPC_GAME_NAME="Skyrim Together" DISCORD_RPC_STEAM_APPID=489830 %command%
+DISCORD_RPC_DISABLE=1 %command%
 ```
 
 ## Uninstallation
@@ -126,8 +124,5 @@ I don't really care and this probably won't break anytime soon. But if something
 
 ## Disclaimer
 
-Code implementation and debugging were heavily AI-assisted, while all project documentation, specifications, and architecture design were thoroughly reviewed and maintained by me. 
-
-Absolutely none of the c files were written by me -- so pretty much vibecode. (surprise an intermediate python dev somehow started using C used AI -- though it wasn't that complicated). I am distinctly aware of security concerns so I did my best to address any shortcomings. 
-
-The tests are also very generic and while actually hand-written by me or guided, was simply basic to intermediate to check if it worked with my setup, thus WOMM 🤷‍♂️ - M4 macbook air with crossover 26.3. The reason why the code worked so well is because I just copied the implementation by sn0wst0rm. :D
+Code implementation and debugging were AI-assisted(Especially ones written in C), while all project documentation, specifications, and architecture design were thoroughly reviewed and maintained by me. 
+This project has only been verified to work on my own machines so far, an M1 mac mini and an M4 macbook air. Please create an issue if something goes wrong on your end.
