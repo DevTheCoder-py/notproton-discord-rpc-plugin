@@ -93,9 +93,9 @@ Global defaults live in `~/Library/Application Support/notproton/plugins/discord
 
 | `config.conf` Key | Launch Option Override | Default | Description |
 |---|---|---|---|
-| `mode` | `DISCORD_RPC_MODE=...` | `auto` | `auto` (wait 3s then fallback), `fallback` (Steam presence only), or `native_only` (SDK pipes only). |
+| `mode` | `DISCORD_RPC_MODE=...` | `auto` | `auto` (w8, resort2fallback, `fallback` (Steam presence only), or `native_only` (SDK pipes only). |
 | `artwork` | `DISCORD_RPC_ARTWORK=...` | `cover` | `cover` (600x900), `header`, `hero`, `logo`, or `icon`. |
-| `subtitle` | `DISCORD_RPC_SUBTITLE="..."` | `Steam via NotProton` | Subtitle under game name (empty `subtitle =` hides it). |
+| `subtitle` | `DISCORD_RPC_SUBTITLE="..."` | `Steam via NotProton` | Subtitle under game name (leave empty to hide). |
 | `socket_dir` | `DISCORD_RPC_SOCKET_DIR` | Auto-detected | Custom directory for `discord-ipc-0`. |
 | `client_id` | `DISCORD_RPC_CLIENT_ID` | `1508914471433928824` | Custom Discord Application ID for fallback presence. |
 | `small_image` | `DISCORD_RPC_SMALL_IMAGE` | Empty (disabled) | Optional small badge image (URL or Discord asset key). |
