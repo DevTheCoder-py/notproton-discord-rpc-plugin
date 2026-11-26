@@ -1,6 +1,6 @@
 # notproton-discord-rpc-plugin
 
-A plugin for [NotProton](https://github.com/NotProtonNot/NotProton) (v1.2+) that bridges Discord game presence from Wine to the macOS Discord desktop client.
+A plugin for [NotProton](https://github.com/NotProtonNot/NotProton) (v1.2+) that bridges Discord game presence from Wine to the macOS Discord desktop client as well as a beautiful fallback mode. Uses no separate helper sessions/binaries, everything is handled automatically.
 
 <img src="assets/preview.png" alt="Discord Rich Presence Preview" width="300" />
 
@@ -46,7 +46,7 @@ This plugin handles game presence through two paths:
 - macOS 14.0+
 - NotProton v1.2.0+
 - CrossOver 26.3+ (paid version only)
-- Rosetta 2 (FEX i.e CrosOver preview not supported under main branch but planned to add support after plugin-partt3 of Notproton is merged)
+- Rosetta 2 (FEX is only supported when using NotProton's plugin-pt3 patch which will be merged to main soon. Due to nature of our implementation, no additional patches from this project should be required to support it.)
 - Discord for Mac
 - Basically everything NotProton requires
 - `clang` and `mingw-w64` (only required when building from source)
@@ -77,7 +77,7 @@ All plugin files are copied directly into `~/Library/Application Support/notprot
       └── notproton-discord.exe
 ```
 
-If macOS Gatekeeper flags pre-built binaries downloaded via browser, remove the quarantine attribute (no sudo required):
+If macOS Gatekeeper flags pre-built binaries downloaded via browser, remove the quarantine attribute:
 
 ```bash
 xattr -dr com.apple.quarantine ~/Library/Application\ Support/notproton/plugins/discord-rpc/
@@ -120,7 +120,8 @@ rm -rf ~/Library/Application\ Support/notproton/plugins/discord-rpc*
 
 ## Contributing
 
-I don't really care and this probably won't break anytime soon. But if something actually breaks or Discord/Wine changes down the line, feel free to open a PR and I'll look at it. Though, please test with newer CrossOver versions if you can and report it!
+Contributions are very welcome. Just make a sane PR(no 200+ line change) and I'll review it and merge if appropriate.
+Please report any issues you have when using it. Even positive reports are appreciated (especially on different CrossOver versions)
 
 ---
 
@@ -133,5 +134,5 @@ I don't really care and this probably won't break anytime soon. But if something
 
 ## Disclaimer
 
-Code implementation and debugging were AI-assisted(Especially ones written in C), while all project documentation, specifications, and architecture design were thoroughly reviewed and maintained by me. 
+Code implementation and debugging were AI-assisted(Especially ones written in C), while all project documentation, specifications, and architecture design were thoroughly written or reviewed and maintained by me. 
 This project has only been verified to work on my own machines so far, an M1 mac mini and an M4 macbook air. Please create an issue if something goes wrong on your end.
