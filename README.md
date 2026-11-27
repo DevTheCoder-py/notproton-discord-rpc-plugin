@@ -89,6 +89,8 @@ xattr -dr com.apple.quarantine ~/Library/Application\ Support/notproton/plugins/
 2. In Steam, open game **Properties** $\rightarrow$ **Compatibility** / **General**.
 3. Under **Developer**, enable **Discord Rich Presence** (and pick **Presence mode** / **Cover art style** directly in the UI).
 
+<img src="assets/steamui.png" alt="Steam Developer Options" width="420" />
+
 Global defaults live in `~/Library/Application Support/notproton/plugins/discord-rpc/config.conf` (`key = value`, applied on next game launch, preserved on updates). Steam UI options and **Launch Options** override `config.conf` per game:
 
 | `config.conf` Key | Launch Option Override | Default | Description |
