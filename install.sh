@@ -14,7 +14,7 @@ usage() {
 Usage: ./install.sh [OPTIONS]
 
 Options:
-  -r, --reinstall   Remove existing plugin files (including config.conf) and reinstall
+  -r, --reinstall   Remove existing plugin files and reinstall (prompts to overwrite config.conf)
   -u, --uninstall   Remove the installed plugin and exit
       --no-prompt   Skip interactive prompts after installation
   -h, --help        Show this help message and exit
@@ -53,7 +53,19 @@ if [ "$ACTION" = "uninstall" ]; then
     exit 0
 fi
 
+CONFIG_BACKUP=""
 if [ "$ACTION" = "reinstall" ]; then
+    OVERWRITE_CONFIG=0
+    if [ -f "$PLUGIN_SUBDIR/config.conf" ] && [ -t 0 ] && [ "$NO_PROMPT" -eq 0 ]; then
+        read -r -p "Overwrite existing config.conf? [y/N]: " cfg_resp
+        case "$cfg_resp" in
+            [yY][eE][sS]|[yY]) OVERWRITE_CONFIG=1 ;;
+        esac
+    fi
+    if [ -f "$PLUGIN_SUBDIR/config.conf" ] && [ "$OVERWRITE_CONFIG" -eq 0 ]; then
+        CONFIG_BACKUP="$(mktemp)"
+        cp -f "$PLUGIN_SUBDIR/config.conf" "$CONFIG_BACKUP"
+    fi
     echo "==> Removing existing plugin before reinstalling..."
     rm -f "$CONF_FILE"
     rm -rf "$PLUGIN_SUBDIR"
@@ -100,6 +112,9 @@ fi
 
 echo "==> Installing to $DEST_DIR..."
 mkdir -p "$PLUGIN_SUBDIR"
+if [ -n "$CONFIG_BACKUP" ] && [ -f "$CONFIG_BACKUP" ]; then
+    mv -f "$CONFIG_BACKUP" "$PLUGIN_SUBDIR/config.conf"
+fi
 cp -f "$SCRIPT_DIR/plugin/discord-rpc.conf" "$CONF_FILE"
 cp -f "$SCRIPT_DIR/build/discord_bridge.dylib" "$PLUGIN_SUBDIR/discord_bridge.dylib"
 cp -f "$SCRIPT_DIR/build/notproton-discord.exe" "$PLUGIN_SUBDIR/notproton-discord.exe"
