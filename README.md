@@ -28,15 +28,15 @@ macOS Host
   Discord Mac Client
 ```
 
-Windows games communicate with Discord over Win32 named pipes (`\\.\pipe\discord-ipc-0` through `9`), whereas Discord on macOS listens on a UNIX domain socket. Wine does not bridge these sockets by default.
+Windows games communicate with Discord over Win32 named pipes (`\\.\pipe\discord-ipc-0` through `9`), while Discord's client on macOS listens on a UNIX domain socket which are not bridged by wine by default
 
 This plugin handles game presence through two paths:
 
-- **Named Pipe Forwarding**: Injected via `DYLD_INSERT_LIBRARIES`, `discord_bridge.dylib` spawns `notproton-discord.exe` inside the prefix to bind `\\.\pipe\discord-ipc-0`..`9` and relay packets over authenticated loopback TCP to Discord's macOS UNIX socket. Games with built-in Discord SDK support use this path.
-- **Steam AppID Fallback**: If no named pipe traffic occurs within 3 seconds, the dylib reads `STEAM_COMPAT_APP_ID` and `appmanifest_<appid>.acf`, then broadcasts a Rich Presence frame (`status_display_type: 2`, Client ID `1508914471433928824`) with the game title, elapsed timer, and Steam 600x900 cover art. If the game later opens a named pipe, fallback clears automatically.
+- **Native Game RPC**: For games with built-in Discord Rich Presence, the plugin forwards their live status directly to the macOS Discord client.
+- **Automatic Fallback mode**: If a game doesn't use native Discord RPC within 3 seconds, the plugin automatically displays its title, cover art, and playtime from your Steam library (including external drives and non-Steam shortcuts), just a standard classy Discord presence(which you can absolutely configure). If the game connects natively later, fallback stops automatically and native is pushed instead. There were some issues with external launchers but it seems to be fixed(or at least fixed for all the games I tested)
 
-> **Why fallback is an IPC broadcast, not native game detection:**  
-> Discord's macOS scanner (`DiscordGameUtils`) polls `proc_pidinfo` and `NSWorkspace` to match running binaries against its database. NotProton's launcher sets `<key>LSUIElement</key><true/>` and names the process `wine` to keep helper windows out of the Dock—and Discord ignores `LSUIElement` background agents. Because `wine` isn't a recognized game binary, fallback presence pushes an RPC activity frame over Discord's IPC socket rather than triggering local process detection.
+> **Why IPC brodcast is used for fallback mode instead of making discord recognise the game exe like on Windows**  
+> Discord's macOS scanner (`DiscordGameUtils`) polls `proc_pidinfo` and `NSWorkspace` to match running binaries against its database. NotProton sets LSUIElement to true and names the process `wine` to keep helper windows out of the mac dock and causes discord to ignore `LSUIElement` background agents and no game is detected. Because `wine` isn't a recognized game binary, fallback presence pushes an RPC activity frame over Discord's IPC socket rather than triggering local process detection.
 
 > [!IMPORTANT]
 > Thus, note that discord will not understand the activity as a known game when using fallback as it is simply just a decorated rich presence from a Discord Application. This is a known problem and impractical to fix when LSUIELEMENT = true. (unless you want to use a .exe spoofer which is outside the scope of this project and is undesirable and also likely a violation of Discord TOS under "Restrictions on your use of Discord’s services")
@@ -129,7 +129,8 @@ Please report any issues you have when using it. Even positive reports are appre
 ## Acknowledgements
 
 - Based on initial named-pipe bridge research and prototypes by [sn0wst0rm](https://github.com/sn0wst0rm) ([`sn0wst0rm/NotProton` (feat/discord-rich-presence)](https://github.com/sn0wst0rm/NotProton/tree/feat/discord-rich-presence)).
-- Built for the [NotProton](https://github.com/NotProtonNot/NotProton) ecosystem.
+- Built for the [NotProton](https://github.com/NotProtonNot/NotProton).
+- NotProton forks patched to use different runners(i.e NOT CrossOver) are unsupported and discouraged. Please [buy CrossOver](https://www.codeweavers.com/store)
 
 ---
 
