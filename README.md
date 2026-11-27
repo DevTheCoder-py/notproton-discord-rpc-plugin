@@ -46,7 +46,7 @@ This plugin handles game presence through two paths:
 - macOS 14.0+
 - NotProton v1.2.0+
 - CrossOver 26.3+ (paid version only)
-- Rosetta 2 (FEX is only supported when using NotProton's plugin-pt3 patch which will be merged to main soon. Due to nature of our implementation, no additional patches from this project should be required to support it.)
+- Rosetta 2 (FEX is only supported when using NotProton's plugin-pt3 patch which will be merged to main soon. Due to nature of our implementation, no additional patches from this project should be required to support it. This is true for every single implementation of a discord rpc bridge, not just this project)
 - Discord for Mac
 - Basically everything NotProton requires
 - `clang` and `mingw-w64` (only required when building from source)
